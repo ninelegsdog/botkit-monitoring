@@ -11,7 +11,6 @@ services:
     image: prom/prometheus:v3.8.1
     network_mode: host
     restart: unless-stopped
-    user: "1001:1001"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -26,7 +25,6 @@ services:
     image: prom/alertmanager:v0.28.1
     network_mode: host
     restart: unless-stopped
-    user: "1001:1001"
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
@@ -44,7 +42,6 @@ services:
     image: grafana/grafana:12.3.1
     network_mode: host
     restart: unless-stopped
-    user: "1001:1001"
     environment:
       GF_SERVER_HTTP_ADDR: 127.0.0.1
       GF_SERVER_HTTP_PORT: 3000
