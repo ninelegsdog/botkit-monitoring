@@ -1,0 +1,37 @@
+groups:
+  - name: botkit
+    rules:
+      - alert: BotDown
+        expr: up{job="botkit"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bot {{ $labels.instance }} down"
+          description: "/metrics недоступен 2+ минут на {{ $labels.instance }}"
+
+      - alert: BotErrorSpike
+        expr: sum by (instance) (rate(botkit_errors_total{job="botkit"}[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Error spike on {{ $labels.instance }}"
+          description: ">0.5 ошибок/сек в течение 5 минут"
+
+      - alert: BotUpdatesStalled
+        expr: sum by (instance) (increase(botkit_updates_total{job="botkit"}[30m])) == 0 and on(instance) botkit_up{job="botkit"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No updates processed on {{ $labels.instance }} (30m)"
+          description: "Бот жив, но 30 мин не обрабатывает апдейты — проверить polling/getUpdates"
+
+      - alert: BotHighHandlerLatency
+        expr: histogram_quantile(0.95, sum by (instance, le) (rate(botkit_handler_duration_seconds_bucket{job="botkit"}[5m]))) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 handler latency > 5s on {{ $labels.instance }}"

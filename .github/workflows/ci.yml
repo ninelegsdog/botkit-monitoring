@@ -1,0 +1,17 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose config
+        run: docker compose config --quiet
+      - name: promtool check
+        run: |
+          docker run --rm -v "$PWD/prometheus:/cfg" prom/prometheus:v3.8.1 \
+            promtool check config /cfg/prometheus.yml
+      - name: yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_file: .yamllint.yml
