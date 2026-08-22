@@ -9,8 +9,8 @@ jobs:
         run: docker compose config --quiet
       - name: promtool check
         run: |
-          docker run --rm --entrypoint promtool -v "$PWD/prometheus:/cfg" prom/prometheus:v3.8.1 \
-            check config /cfg/prometheus.yml
+          docker run --rm --entrypoint promtool -v "$PWD/prometheus:/etc/prometheus" prom/prometheus:v3.8.1 \
+            check config /etc/prometheus/prometheus.yml
       - name: yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
