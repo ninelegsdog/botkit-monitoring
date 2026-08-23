@@ -29,7 +29,7 @@ services:
       - /bin/sh
       - -c
       - |
-        bot_token="$${TG_BOT_TOKEN:-0:FILL_ME}"; chat_id="$${TG_CHAT_ID:-0}"; sed -e "s/\$${TG_BOT_TOKEN}/$$bot_token/g" -e "s/\$${TG_CHAT_ID}/$$chat_id/g" /etc/alertmanager/alertmanager.yml.tpl > /tmp/am.yml
+        bot_token="$${TG_BOT_TOKEN:-0:FILL_ME}"; chat_id="$${TG_CHAT_ID:-1}"; sed -e "s/\$${TG_BOT_TOKEN}/$$bot_token/g" -e "s/\$${TG_CHAT_ID}/$$chat_id/g" /etc/alertmanager/alertmanager.yml.tpl > /tmp/am.yml
         exec /bin/alertmanager --config.file=/tmp/am.yml --storage.path=/alertmanager --cluster.listen-address=127.0.0.1:9094 --web.listen-address=127.0.0.1:9093
     volumes:
       - ./alertmanager:/etc/alertmanager:ro
