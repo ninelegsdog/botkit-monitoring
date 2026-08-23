@@ -12,6 +12,6 @@ receivers:
   - name: telegram
     telegram_configs:
       - bot_token: "${TG_BOT_TOKEN}"
-        chat_id: -100${TG_CHAT_ID}
+        api_url: https://api.telegram.org
+        chat_id: ${TG_CHAT_ID}
         send_resolved: true
-        parse_mode: ""
