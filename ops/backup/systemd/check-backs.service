@@ -1,0 +1,6 @@
+[Unit]
+Description=Check botkit backups freshness + alert
+
+[Service]
+Type=oneshot
+ExecStart=/root/check_backups.sh
