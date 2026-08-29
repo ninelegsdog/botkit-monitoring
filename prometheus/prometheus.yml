@@ -15,6 +15,7 @@ scrape_configs:
           - 127.0.0.1:8086 # pricesentry
           - 127.0.0.1:8087 # docuflow
           - 127.0.0.1:8088 # delivery
+          - 127.0.0.1:8089 # reminder
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
