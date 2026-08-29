@@ -32,3 +32,22 @@ CI: compose config, promtool, yamllint.
 
 ## Порты
 Все слушают ТОЛЬКО 127.0.0.1: 9090 (prom), 9093/9094 (am), 3000 (grafana). Наружу — ничего.
+
+## Reverse-proxy / Telegram webhook (`reverse-proxy/`)
+TLS-терминация (nginx) + Let's Encrypt (certbot, DNS-01 через duckdns).
+Домен: `ninelegsbots.duckdns.org -> 2.27.204.95`.
+
+- Сертификат выпускается по DNS-01 (duckdns TXT API) — не требует открытого
+  порта 80 (провайдер play2go его фильтрует).
+- **Доставка webhook от Telegram требует открытого 443** — открыть в панели/тикете
+  play2go перед деплоем.
+- `nginx` проксирует `/webhook/<bot>` -> `127.0.0.1:808x` (порт см. prometheus.yml).
+- Боты должны быть переведены polling -> webhook (P9) и отдавать `/webhook`.
+
+Деплой (после открытия 443):
+```
+cd reverse-proxy
+cp .env.example .env   # DUCKDNS_TOKEN, CERTBOT_EMAIL
+docker compose up -d
+```
+

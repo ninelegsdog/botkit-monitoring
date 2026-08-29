@@ -1,0 +1,52 @@
+# Reverse proxy (nginx) + Let's Encrypt (certbot, DNS-01 via duckdns)
+#
+# Why DNS-01: the provider (play2go) filters inbound port 80, so the HTTP-01
+# challenge cannot reach the server. duckdns exposes a TXT API, so certbot can
+# prove domain ownership purely via DNS — no open port 80 required.
+#
+# NOTE: Telegram webhook DELIVERY still requires inbound TCP 443 to be OPEN at
+# the provider. Open a support ticket to unblock 443 before deploying.
+#
+# Domain: ninelegsbots.duckdns.org -> 2.27.204.95
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - ./logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - ./scripts:/hooks:ro
+      - ./logs:/var/log/certbot
+    environment:
+      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN}
+    entrypoint: ["/bin/sh", "-c"]
+    # Issue (and auto-renew) cert via duckdns DNS-01.
+    # --manual-auth-hook sets the TXT record; --manual-cleanup-hook clears it.
+    command:
+      - >
+        certbot certonly --manual --preferred-challenges=dns
+        --manual-auth-hook=/hooks/certbot-auth.sh
+        --manual-cleanup-hook=/hooks/certbot-cleanup.sh
+        --non-interactive --agree-tos --email=${CERTBOT_EMAIL}
+        -d ninelegsbots.duckdns.org
+        && while :; do sleep 12h; certbot renew
+        --manual-auth-hook=/hooks/certbot-auth.sh
+        --manual-cleanup-hook=/hooks/certbot-cleanup.sh; done
+
+volumes:
+  letsencrypt:
