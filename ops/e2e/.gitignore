@@ -1,0 +1,5 @@
+.env.e2e
+*.session
+__pycache__/
+venv/
+*.egg-info/

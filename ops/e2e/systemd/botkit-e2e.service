@@ -1,0 +1,8 @@
+[Unit]
+Description=Botkit E2E Telegram smoke test
+
+[Service]
+Type=oneshot
+EnvironmentFile=/root/botkit-e2e/.env.e2e
+WorkingDirectory=/root/botkit-e2e
+ExecStart=/root/botkit-e2e/venv/bin/python -m e2e.run_e2e
