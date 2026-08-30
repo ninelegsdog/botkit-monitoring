@@ -4,8 +4,10 @@
 # challenge cannot reach the server. duckdns exposes a TXT API, so certbot can
 # prove domain ownership purely via DNS — no open port 80 required.
 #
-# NOTE: Telegram webhook DELIVERY still requires inbound TCP 443 to be OPEN at
-# the provider. Open a support ticket to unblock 443 before deploying.
+# NOTE: inbound TCP 443 has been VERIFIED open at the provider (probe from
+# external host reached a local listener on 0.0.0.0:443). No support ticket
+# needed. nginx uses network_mode: host so 127.0.0.1 in the container maps to
+# the host loopback where the bots publish 127.0.0.1:808x.
 #
 # Domain: ninelegsbots.duckdns.org -> 2.27.204.95
 
@@ -13,9 +15,7 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - letsencrypt:/etc/letsencrypt:ro
