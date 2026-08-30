@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "botkit-e2e"
+version = "0.1.0"
+description = "End-to-end monitoring for botkit Telegram bots"
+requires-python = ">=3.10"
+dependencies = [
+    "telethon",
+    "pyyaml",
+    "requests",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["e2e*"]

@@ -1,0 +1,22 @@
+botkit-bookingbot:
+  steps:
+    - send: /start
+      expect: "Привет"
+    - send: /help
+      expect: "услуг"
+botkit-delivery:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-docuflow:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-leadgen:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-membership:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-pricesentry:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-reminder:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-store:
+  steps: [{send: /start, expect: "Привет"}]
+botkit-support:
+  steps: [{send: /start, expect: "Привет"}]
