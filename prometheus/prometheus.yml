@@ -25,14 +25,14 @@ scrape_configs:
   - job_name: blackbox-cert
     metrics_path: /probe
     params:
-      module: [tls_connect]
+      module: [ssl_check]
     static_configs:
       - targets:
-          - https://ninelegsbots.duckdns.org
+          - https://127.0.0.1:443/healthz # nginx TLS, self-signed cert ninelegsbots.duckdns.org
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
-      - source_labels: [__param_target]
+      - source_labels: [__address__]
         target_label: instance
       - target_label: __address__
         replacement: 127.0.0.1:9115

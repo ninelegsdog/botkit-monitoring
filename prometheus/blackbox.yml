@@ -6,6 +6,16 @@ modules:
       valid_status_codes: []
       follow_redirects: true
 
+  ssl_check:
+    prober: http
+    http:
+      preferred_ip_protocol: "ip4"
+      valid_status_codes: []
+      follow_redirects: true
+      tls_config:
+        server_name: "ninelegsbots.duckdns.org"
+        insecure_skip_verify: true
+
   tls_connect:
     prober: tcp
     tcp:
