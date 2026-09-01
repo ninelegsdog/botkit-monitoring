@@ -35,3 +35,21 @@ groups:
           severity: warning
         annotations:
           summary: "p95 handler latency > 5s on {{ $labels.instance }}"
+
+      - alert: SSLCertExpiring
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox-cert"} - time() < 30 * 24 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL cert expiring in <30d for {{ $labels.instance }}"
+          description: "Истечение сертификата {{ $labels.instance }} через менее чем 30 дней ({{ $value }}s)"
+
+      - alert: SSLCertExpired
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox-cert"} - time() < 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SSL cert expired for {{ $labels.instance }}"
+          description: "Сертификат {{ $labels.instance }} истёк — Telegram webhook может не работать"

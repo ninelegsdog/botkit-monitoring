@@ -22,5 +22,20 @@ scrape_configs:
         regex: 127\.0\.0\.1:(\d+)
         replacement: bot-${1}
 
+  - job_name: blackbox-cert
+    metrics_path: /probe
+    params:
+      module: [tls_connect]
+    static_configs:
+      - targets:
+          - https://ninelegsbots.duckdns.org
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
 rule_files:
   - /etc/prometheus/alerts.yml

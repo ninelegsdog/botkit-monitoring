@@ -21,6 +21,24 @@ services:
       - prom-data:/prometheus
     logging: *default-logging
 
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+      - --web.listen-address=127.0.0.1:9115
+    volumes:
+      - ./prometheus/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
+
   alertmanager:
     image: prom/alertmanager:v0.28.1
     network_mode: host
