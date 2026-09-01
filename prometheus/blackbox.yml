@@ -1,0 +1,13 @@
+modules:
+  http_2xx:
+    prober: http
+    http:
+      preferred_ip_protocol: "ip4"
+      valid_status_codes: []
+      follow_redirects: true
+
+  tls_connect:
+    prober: tcp
+    tcp:
+      tls: true
+      preferred_ip_protocol: "ip4"
