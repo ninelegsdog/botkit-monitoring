@@ -88,6 +88,10 @@ services:
     restart: unless-stopped
     command:
       - --config.file=/etc/tempo/config.yaml
+      - --config.expand-env=true
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     volumes:
       - ./tempo:/etc/tempo:ro
       - tempo-data:/var/tempo
@@ -97,12 +101,20 @@ services:
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     network_mode: host
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command: server /data --address 127.0.0.1:9000 --console-address 127.0.0.1:9001
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?set in .env}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?set in .env}
     volumes:
       - minio-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/minio
     logging: *default-logging
 
   loki:
@@ -112,6 +124,10 @@ services:
     restart: unless-stopped
     command:
       - --config.file=/etc/loki/config.yaml
+      - --config.expand-env=true
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     volumes:
       - ./loki:/etc/loki:ro
       - ./loki-data/chunks:/var/loki/chunks
