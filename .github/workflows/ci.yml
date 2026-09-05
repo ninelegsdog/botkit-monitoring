@@ -6,7 +6,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: compose config
-        run: docker compose config --quiet
+        run: |
+          MINIO_ROOT_USER=ci MINIO_ROOT_PASSWORD=ci docker compose config --quiet
       - name: promtool check
         run: |
           docker run --rm --entrypoint promtool -v "$PWD/prometheus:/etc/prometheus" prom/prometheus:v3.8.1 \
