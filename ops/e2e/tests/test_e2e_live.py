@@ -1,7 +1,8 @@
 import os
+
 import pytest
-from e2e.config import load_settings, load_scenarios
 from e2e.client import TelegramTester
+from e2e.config import load_scenarios, load_settings
 
 pytestmark = pytest.mark.skipif(not os.environ.get("TG_API_ID"), reason="no e2e creds")
 
