@@ -22,6 +22,10 @@ compactor:
 
 storage:
   trace:
-    backend: local
-    local:
-      path: /var/tempo
+    backend: s3
+    s3:
+      bucket: tempo
+      endpoint: 127.0.0.1:9000
+      access_key: ${MINIO_ROOT_USER}
+      secret_key: ${MINIO_ROOT_PASSWORD}
+      insecure: true

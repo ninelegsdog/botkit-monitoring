@@ -10,6 +10,14 @@ common:
     filesystem:
       chunks_directory: /var/loki/chunks
       rules_directory: /var/loki/rules
+    s3:
+      endpoint: 127.0.0.1:9000
+      region: us-east-1
+      bucketnames: loki
+      access_key_id: ${MINIO_ROOT_USER}
+      secret_access_key: ${MINIO_ROOT_PASSWORD}
+      insecure: true
+      s3forcepathstyle: true
   replication_factor: 1
   ring:
     instance_addr: 127.0.0.1
@@ -53,6 +61,13 @@ schema_config:
     - from: 2026-01-01
       store: boltdb-shipper
       object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+    - from: 2026-09-06
+      store: boltdb-shipper
+      object_store: s3
       schema: v13
       index:
         prefix: index_
