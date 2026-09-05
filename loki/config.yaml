@@ -7,9 +7,6 @@ server:
 common:
   path_prefix: /var/loki
   storage:
-    filesystem:
-      chunks_directory: /var/loki/chunks
-      rules_directory: /var/loki/rules
     s3:
       endpoint: 127.0.0.1:9000
       region: us-east-1
@@ -59,13 +56,6 @@ table_manager:
 schema_config:
   configs:
     - from: 2026-01-01
-      store: boltdb-shipper
-      object_store: filesystem
-      schema: v13
-      index:
-        prefix: index_
-        period: 24h
-    - from: 2026-09-06
       store: boltdb-shipper
       object_store: s3
       schema: v13
