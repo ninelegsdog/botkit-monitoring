@@ -36,6 +36,71 @@ groups:
         annotations:
           summary: "p95 handler latency > 5s on {{ $labels.instance }}"
 
+      # ── SLO: Error Budget Burn Rate (99.9% availability target) ──────────────
+      # Fast burn (1h window, 2% error rate = 14.4x budget) — pages
+      - alert: BotErrorBudgetBurnFast
+        expr: |
+          (
+            sum by (instance) (rate(botkit_errors_total{job="botkit"}[1h]))
+            /
+            sum by (instance) (rate(botkit_updates_total{job="botkit"}[1h]))
+          ) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SLO: Fast error budget burn on {{ $labels.instance }}"
+          description: "Error rate >2% (1h) — burning 14.4x error budget. SLO 99.9% at risk."
+
+      # Medium burn (6h window, 0.5% error rate = 3.6x budget) — tickets
+      - alert: BotErrorBudgetBurnMedium
+        expr: |
+          (
+            sum by (instance) (rate(botkit_errors_total{job="botkit"}[6h]))
+            /
+            sum by (instance) (rate(botkit_updates_total{job="botkit"}[6h]))
+          ) > 0.005
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SLO: Medium error budget burn on {{ $labels.instance }}"
+          description: "Error rate >0.5% (6h) — burning 3.6x error budget. SLO 99.9% degrading."
+
+      # Slow burn (24h window, 0.1% error rate = 0.72x budget) — info
+      - alert: BotErrorBudgetBurnSlow
+        expr: |
+          (
+            sum by (instance) (rate(botkit_errors_total{job="botkit"}[24h]))
+            /
+            sum by (instance) (rate(botkit_updates_total{job="botkit"}[24h]))
+          ) > 0.001
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "SLO: Slow error budget burn on {{ $labels.instance }}"
+          description: "Error rate >0.1% (24h) — burning 0.72x error budget. SLO 99.9% trending down."
+
+      # ── SLO: Latency p95 (target: <1s for handlers, <3s for webhook) ──────────
+      - alert: BotHandlerLatencySLOBreach
+        expr: histogram_quantile(0.95, sum by (instance, le) (rate(botkit_handler_duration_seconds_bucket{job="botkit"}[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SLO: Handler p95 latency > 1s on {{ $labels.instance }}"
+          description: "Handler p95 >1s for 10m (SLO target <1s). Users experiencing delays."
+
+      - alert: BotWebhookLatencySLOBreach
+        expr: histogram_quantile(0.95, sum by (instance, le) (rate(botkit_webhook_duration_seconds_bucket{job="botkit"}[5m]))) > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SLO: Webhook p95 latency > 3s on {{ $labels.instance }}"
+          description: "Webhook p95 >3s for 10m (SLO target <3s). Telegram retries likely."
+
       - alert: SSLCertExpiring
         expr: probe_ssl_earliest_cert_expiry{job="blackbox-cert"} - time() < 30 * 24 * 3600
         for: 10m

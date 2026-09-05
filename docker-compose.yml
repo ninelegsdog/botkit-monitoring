@@ -72,7 +72,68 @@ services:
       - gf-data:/var/lib/grafana
     logging: *default-logging
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    volumes:
+      - ./otelcol:/etc/otelcol-contrib:ro
+    logging: *default-logging
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/tempo/config.yaml
+    volumes:
+      - ./tempo:/etc/tempo:ro
+      - tempo-data:/var/tempo
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    network_mode: host
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - minio-data:/data
+    logging: *default-logging
+
+  loki:
+    image: grafana/loki:3.1.0
+    user: "0:0"
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki:/etc/loki:ro
+      - ./loki-data/chunks:/var/loki/chunks
+      - ./loki-data/rules:/var/loki/rules
+    logging: *default-logging
+
+  promtail:
+    image: grafana/promtail:3.1.0
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/promtail/config.yaml
+    volumes:
+      - ./promtail:/etc/promtail:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging: *default-logging
+
 volumes:
   prom-data:
   am-data:
   gf-data:
+  tempo-data:
+  minio-data:
+  loki-data:
