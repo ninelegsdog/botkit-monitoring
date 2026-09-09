@@ -28,6 +28,15 @@ groups:
           summary: "Error spike on {{ $labels.instance }}"
           description: ">0.5 ошибок/сек в течение 5 минут"
 
+      - alert: BotUpdatesStalled
+        expr: sum by (instance) (increase(botkit_updates_total{job="botkit"}[30m])) == 0 and on(instance) up{job="botkit"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No updates processed on {{ $labels.instance }} (30m)"
+          description: "Бот жив, но 30 мин не обрабатывает апдейты — проверить webhook/polling"
+
       - alert: BotHighHandlerLatency
         expr: histogram_quantile(0.95, sum by (instance, le) (rate(botkit_handler_duration_seconds_bucket{job="botkit"}[5m]))) > 5
         for: 10m

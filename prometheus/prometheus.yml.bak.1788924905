@@ -2,11 +2,6 @@ global:
   scrape_interval: 15s
   evaluation_interval: 30s
 
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets: ["127.0.0.1:9093"]
-
 scrape_configs:
   - job_name: botkit
     metrics_path: /metrics
@@ -39,31 +34,6 @@ scrape_configs:
         target_label: __param_target
       - source_labels: [__address__]
         target_label: instance
-      - target_label: __address__
-        replacement: 127.0.0.1:9115
-
-  - job_name: blackbox-webhooks
-    metrics_path: /probe
-    params:
-      module: [duckdns_http]
-    static_configs:
-      - targets:
-          - https://ninelegsbots.duckdns.org/webhook/bookingbot
-          - https://ninelegsbots.duckdns.org/webhook/leadgen
-          - https://ninelegsbots.duckdns.org/webhook/store
-          - https://ninelegsbots.duckdns.org/webhook/support
-          - https://ninelegsbots.duckdns.org/webhook/membership
-          - https://ninelegsbots.duckdns.org/webhook/pricesentry
-          - https://ninelegsbots.duckdns.org/webhook/docuflow
-          - https://ninelegsbots.duckdns.org/webhook/delivery
-          - https://ninelegsbots.duckdns.org/webhook/reminder
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__address__]
-        regex: .*webhook/(\w+)
-        target_label: bot
-        replacement: ${1}
       - target_label: __address__
         replacement: 127.0.0.1:9115
 

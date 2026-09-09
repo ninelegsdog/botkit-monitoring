@@ -16,15 +16,6 @@ modules:
         server_name: "ninelegsbots.duckdns.org"
         insecure_skip_verify: true
 
-  duckdns_http:
-    prober: http
-    http:
-      preferred_ip_protocol: "ip4"
-      valid_status_codes: [200, 401, 403, 404, 405]
-      follow_redirects: true
-      tls_config:
-        insecure_skip_verify: true
-
   tls_connect:
     prober: tcp
     tcp:
