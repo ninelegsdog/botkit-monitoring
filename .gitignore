@@ -9,3 +9,6 @@ __pycache__/
 loki-data/
 minio-data/
 tmp/
+*.bak.*
+.bak-*/
+.env.*
