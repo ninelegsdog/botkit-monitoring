@@ -67,5 +67,8 @@ scrape_configs:
       - target_label: __address__
         replacement: 127.0.0.1:9115
 
+  - job_name: node
+    static_configs:
+      - targets: ["127.0.0.1:9100"]
 rule_files:
   - /etc/prometheus/alerts.yml

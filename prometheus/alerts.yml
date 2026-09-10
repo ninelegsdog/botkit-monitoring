@@ -121,3 +121,52 @@ groups:
         annotations:
           summary: "SSL cert expired for {{ $labels.instance }}"
           description: "Сертификат {{ $labels.instance }} истёк — Telegram webhook может не работать"
+      - alert: BotMetricsUnavailable
+        expr: |
+          sum by (instance) (rate(botkit_updates_total{job="botkit"}[1h])) > 1e-3
+          and on(instance) absent_over_time(botkit_errors_total{job="botkit"}[1h])
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Нет метрик ошибок: {{ $labels.instance }}"
+          description: "botkit_errors_total отсутствует при активном трафике — error/burn-алерты не работают"
+  - name: node
+    rules:
+      - alert: HostDiskSpaceHigh
+        expr: |
+          (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}) > 0.85
+          and node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk >85% на {{ $labels.device }}"
+          description: "Занято {{ $value | humanizePercentage }} на {{ $labels.mountpoint }}"
+
+      - alert: HostMemHigh
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.92
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAM >92%"
+          description: "Занято {{ $value | humanizePercentage }}. Swap: {{ $labels.instance }}"
+
+      - alert: HostLoadHigh
+        expr: node_load1 > 6
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Load1 {{ $value }} на хосте"
+          description: "Load average 1m превысил 6 в течение 15m"
+
+      - alert: HostUnreachable
+        expr: up{job="node"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "node_exporter недоступен"
+          description: "Метрики хоста пропали — {{ $labels.instance }}"

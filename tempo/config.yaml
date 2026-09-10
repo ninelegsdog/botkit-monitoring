@@ -1,4 +1,6 @@
 server:
+  http_listen_address: 127.0.0.1
+  grpc_listen_address: 127.0.0.1
   http_listen_port: 3200
   grpc_listen_port: 9096
 
@@ -7,9 +9,9 @@ distributor:
     otlp:
       protocols:
         grpc:
-          endpoint: 0.0.0.0:4319
+          endpoint: 127.0.0.1:4319
         http:
-          endpoint: 0.0.0.0:4320
+          endpoint: 127.0.0.1:4320
 
 ingester:
   max_block_duration: 5m
