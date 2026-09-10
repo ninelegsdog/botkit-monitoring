@@ -6,9 +6,19 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+x-harden: &harden
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+
 services:
   prometheus:
-    image: prom/prometheus:v3.8.1
+    image: prom/prometheus@sha256:2b6f734e372c1b4717008f7d0a0152316aedd4d13ae17ef1e3268dbfaf68041b
+    user: "65534:65534"
     network_mode: host
     restart: unless-stopped
     command:
@@ -19,10 +29,13 @@ services:
     volumes:
       - ./prometheus:/etc/prometheus:ro
       - prom-data:/prometheus
+    mem_limit: 1536m
+    pids_limit: 256
+    <<: *harden
     logging: *default-logging
 
   blackbox-exporter:
-    image: prom/blackbox-exporter:v0.25.0
+    image: prom/blackbox-exporter@sha256:b04a9fef4fa086a02fc7fcd8dcdbc4b7b35cc30cdee860fdc6a19dd8b208d63e
     network_mode: host
     restart: unless-stopped
     command:
@@ -30,17 +43,14 @@ services:
       - --web.listen-address=127.0.0.1:9115
     volumes:
       - ./prometheus/blackbox.yml:/etc/blackbox/blackbox.yml:ro
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
-    tmpfs:
-      - /tmp
+    mem_limit: 128m
+    pids_limit: 64
+    <<: *harden
     logging: *default-logging
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    user: "65534:65534"
     network_mode: host
     restart: unless-stopped
     entrypoint:
@@ -55,10 +65,14 @@ services:
     environment:
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_CHAT_ID: ${TG_CHAT_ID}
+    mem_limit: 256m
+    pids_limit: 128
+    <<: *harden
     logging: *default-logging
 
   grafana:
-    image: grafana/grafana:12.3.1
+    image: grafana/grafana@sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f
+    user: "472:0"
     network_mode: host
     restart: unless-stopped
     environment:
@@ -70,20 +84,28 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - gf-data:/var/lib/grafana
+    mem_limit: 768m
+    pids_limit: 192
+    <<: *harden
     logging: *default-logging
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.119.0
+    image: otel/opentelemetry-collector-contrib@sha256:36c35cc213c0f3b64d6e8a3e844dc90822f00725e0e518eaed5b08bcc2231e72
+    user: "10001:10001"
     network_mode: host
     restart: unless-stopped
     command:
       - --config=/etc/otelcol-contrib/config.yaml
     volumes:
       - ./otelcol:/etc/otelcol-contrib:ro
+    mem_limit: 512m
+    pids_limit: 128
+    <<: *harden
     logging: *default-logging
 
   tempo:
-    image: grafana/tempo:2.6.0
+    image: grafana/tempo@sha256:f55a8a1937fff0af3a760d376b476c8327fb30e432d5e7630d7938b67691e822
+    user: "10001:10001"
     network_mode: host
     restart: unless-stopped
     command:
@@ -95,10 +117,16 @@ services:
     volumes:
       - ./tempo:/etc/tempo:ro
       - tempo-data:/var/tempo
+    depends_on:
+      minio:
+        condition: service_healthy
+    mem_limit: 512m
+    pids_limit: 128
+    <<: *harden
     logging: *default-logging
 
   minio:
-    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    image: minio/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3
     network_mode: host
     restart: unless-stopped
     command: server /data --address 127.0.0.1:9000 --console-address 127.0.0.1:9001
@@ -107,6 +135,13 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?set in .env}
     volumes:
       - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 8s
+
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -115,10 +150,12 @@ services:
     tmpfs:
       - /tmp
       - /home/minio
+    mem_limit: 1024m
+    pids_limit: 128
     logging: *default-logging
 
   loki:
-    image: grafana/loki:3.1.0
+    image: grafana/loki@sha256:d947e68a84d9e44915dfa08c3bec27e2124efd5ba6c83443eb53578101ec69e3
     user: "0:0"
     network_mode: host
     restart: unless-stopped
@@ -130,12 +167,17 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     volumes:
       - ./loki:/etc/loki:ro
-      - ./loki-data/chunks:/var/loki/chunks
-      - ./loki-data/rules:/var/loki/rules
+      - loki-data:/var/loki
+    depends_on:
+      minio:
+        condition: service_healthy
+    mem_limit: 1024m
+    pids_limit: 192
+    <<: *harden
     logging: *default-logging
 
   promtail:
-    image: grafana/promtail:3.1.0
+    image: grafana/promtail@sha256:b3db8e7b1cba0e8c45ce2ae72ebddfd88ebdcae86383f1680edf0074e9010ff6
     network_mode: host
     restart: unless-stopped
     command:
@@ -144,6 +186,29 @@ services:
       - ./promtail:/etc/promtail:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 256m
+    pids_limit: 128
+    <<: *harden
+    logging: *default-logging
+
+  node-exporter:
+    image: prom/node-exporter@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=127.0.0.1:9100
+    volumes:
+      - /:/host:ro,rslave
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    pids_limit: 64
     logging: *default-logging
 
 volumes:
