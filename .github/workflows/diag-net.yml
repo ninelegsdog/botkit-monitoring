@@ -1,0 +1,27 @@
+name: diag-net
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connectivity probe
+        shell: bash
+        run: |
+          set -x
+          echo "egress-v4: $(curl -4 -s --max-time 8 https://api.ipify.org || echo none)"
+          for tgt in \
+            "2.27.204.95 22 PROD-SSH" \
+            "2.27.204.95 443 PROD-HTTPS" \
+            "2.27.204.95 80 PROD-HTTP" \
+            "31.76.11.198 22 VPS-SSH" \
+            "api.telegram.org 443 TG-api" \
+            "github.com 443 GH"; do
+            set -- $tgt
+            if timeout 6 bash -c "echo > /dev/tcp/$1/$2" 2>/dev/null; then
+              echo "OPEN  $1:$2 ($3)"
+            else
+              echo "CLOSED $1:$2 ($3)"
+            fi
+          done
