@@ -1,0 +1,25 @@
+name: e2e-smoke
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run smoke_all.sh on prod via SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null /tmp/id_deploy
+          printf '%s' "$SSH_KEY" > /tmp/id_deploy
+          chmod 600 /tmp/id_deploy
+          ssh -i /tmp/id_deploy -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$PROD_USER@$PROD_HOST" \
+              'cd /home/deploy/botkit-monitoring && ./ops/e2e/smoke_all.sh'
+      - name: Report
+        if: failure()
+        run: echo "::error::SMOKE_ALL FAILED — проверь деплой и повтори: gh workflow run e2e-smoke"
