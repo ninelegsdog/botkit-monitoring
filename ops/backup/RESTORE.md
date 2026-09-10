@@ -47,3 +47,21 @@ scp ops/backup/*.sh root@2.27.204.95:/root/
 scp ops/backup/systemd/check-backs.* root@2.27.204.95:/etc/systemd/system/
 ssh root@2.27.204.95 'systemctl daemon-reload && systemctl enable --now check-backs.timer'
 ```
+
+## АКТУАЛЬНАЯ архитектура (fix(backup), 2026-09)
+- sqlite: бэкап живёт в cron-контейнере botkit-backup-cron (bash /run_pullbackups.sh ->
+  docker run runner). Деплой-скрипт: /home/deploy/pullbackups.sh (копия в репо
+  ops/backup/pullbackups.sh). Механика: в-контейнерный python выполняет ONLINE BACKUP API
+  (src.backup(dst), uri mode=ro) в /app/backups/export.<TS>.db -> export в
+  /home/deploy/backups-export/<bot>/export.<TS>.db (keep 40) -> pushoffsite.sh копирует в
+  приватный GH-репо (offsite-копия, 1h после).
+- redis: отдельно root-скриптом backup_bots.sh (systemd backup-bots.timer, раз в 6ч):
+  bgsave через shared redis (6380) -> /home/deploy/botkit-shared-redis/backups/redis.rdb.<TS>.
+- статусы: /var/backups/botkit/status/<bot>.ok|.fail, таймер check-backs.timer раз в час
+  отправляет скрипт на проверку.
+- ВАЖНО: docker cp локальную часть пути резолвит В FS КЛИЕНТА (где работает CLI), НЕ
+  на docker-демоне. Изнутри cron-контейнера путь должен существовать там же; при патче
+  на хосте (docker cp ... /home/deploy/... ) это корректно. Не запускать docker cp из
+  контейнера с путём, который есть только на хосте через bind => та же трапка.
+- e2e-проверка: ops/e2e/backup-restore-e2e.sh (свежесть export + PRAGMA integrity_check
+  + rdb). Прогонять после правок схемы бэкапа.

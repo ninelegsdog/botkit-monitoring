@@ -25,12 +25,14 @@ def token_for(bot: str) -> str:
 
 def send_alert(bot, reason):
     last = STATUS_DIR / f".alerted.{bot}"
-    if last.exists() and (pathlib.Path().cwd() is not None):
-        pass
+    import time as _t
+    if last.exists() and _t.time() - last.stat().st_mtime < THROTTLE:
+        return
     payload = [{"labels": {"alertname": "E2ETestFailed", "severity": "critical", "bot": bot, "service": "botkit-e2e"},
                 "annotations": {"summary": f"E2E fail {bot}", "description": reason}}]
     try:
         requests.post(AM_URL, json=payload, timeout=5)
+        last.write_text(str(_t.time()))
     except Exception:  # noqa: BLE001, S110
         pass
 
@@ -55,7 +57,7 @@ async def run_all(scenarios, settings, status_dir):
             else:
                 (status_dir / f"{bot}.fail").write_text("fail")
                 (status_dir / f"{bot}.ok").unlink(missing_ok=True)
-                send_alert(bot, err if not ok else "unexpected reply")
+                send_alert(bot, err or "unexpected reply")
                 print(f"FAIL {bot}")
                 problems += 1
         return problems

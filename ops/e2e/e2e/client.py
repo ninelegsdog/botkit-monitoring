@@ -30,17 +30,23 @@ class TelegramTester:
 
     async def run_scenario(self, username, steps, timeout):
         out = []
+        seen = 0
         for st in steps:
+            top = await self.client.get_messages(username, limit=1)
+            seen = top[0].id if top else 0
             await self.client.send_message(username, st.send)
-            out.append(await self._wait_reply(username, timeout))
+            reply, seen = await self._wait_reply(username, timeout, seen)
+            out.append(reply)
         return out
 
-    async def _wait_reply(self, username, timeout):
+    async def _wait_reply(self, username, timeout, after_id):
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while loop.time() < deadline:
-            for m in await self.client.get_messages(username, limit=3):
+            for m in await self.client.get_messages(username, limit=5):
+                if m.id <= after_id:
+                    continue
                 if m.out is False and m.text:
-                    return m.text
+                    return m.text, m.id
             await asyncio.sleep(1.5)
         raise TimeoutError(f"no reply from {username}")
