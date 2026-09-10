@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-#
-# backup_bots.sh — резервное копирование sqlite + redis для всех botkit-ботов.
-# Запускается systemd timer каждые 6ч. Проверяет целостность и пишет статус
-# в /var/backups/botkit/status/<bot>.ok | <bot>.fail для check_backups.sh.
-#
+# backup_bots.sh — sqlite (по ботам) + shared redis (один инстанс).
+# systemd timer 6ч; статусы в /var/backups/botkit/status для check_backups.sh.
 set -u
 KEEP=14
 TS=$(date +%F-%H%M)
@@ -12,6 +9,7 @@ STATUS_DIR=/var/backups/botkit/status
 ALERTED_DIR=/var/backups/botkit/alerted
 mkdir -p "$STATUS_DIR" "$ALERTED_DIR"
 FAIL=0
+RC=botkit-shared-redis-redis-1
 
 sqlite_ok() {
   python3 - "$1" <<'PY'
@@ -26,57 +24,90 @@ except Exception:
 PY
 }
 
+redis_rdb_ok() {
+  local f="$1" sz magic
+  sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+  magic=$(head -c5 "$f" 2>/dev/null || echo "")
+  [ "$magic" = "REDIS" ] && [ "${sz:-0}" -gt 0 ]
+}
+
+mark_ok()   { echo "$TS" > "$STATUS_DIR/$1.ok";  rm -f "$STATUS_DIR/$1.fail"; }
+mark_fail() { echo "$TS" > "$STATUS_DIR/$1.fail"; rm -f "$STATUS_DIR/$1.ok"; FAIL=1; }
+
+# --- shared redis ---
+REDIS_DIR="$BASE/botkit-shared-redis"
+REDIS_PASS=""
+[ -f "$REDIS_DIR/.env" ] && REDIS_PASS=$(grep "^REDIS_PASSWORD=" "$REDIS_DIR/.env" | head -1 | cut -d= -f2-)
+REDIS_OK=0
+LS_A=$(docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} lastsave 2>/dev/null || echo 0)
+if docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} bgsave >/dev/null 2>&1 && \
+   docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} info >/dev/null 2>&1; then
+  for _ in $(seq 1 15); do
+    LS_B=$(docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} lastsave 2>/dev/null || echo 0)
+    [ "${LS_B:-0}" -gt "${LS_A:-0}" ] 2>/dev/null && break
+    sleep 1
+  done
+  mkdir -p "$REDIS_DIR/backups"
+  if docker cp "$RC":/data/dump.rdb "$REDIS_DIR/backups/redis.rdb.$TS" >/dev/null 2>&1 \
+     && redis_rdb_ok "$REDIS_DIR/backups/redis.rdb.$TS"; then
+    REDIS_OK=1
+    mark_ok botkit-shared-redis
+    echo "shared-redis: redis=ok ($(stat -c%s "$REDIS_DIR/backups/redis.rdb.$TS" 2>/dev/null || echo 0) bytes)"
+  else
+    echo "shared-redis: dump invalid/missing"
+    mark_fail botkit-shared-redis
+  fi
+else
+  echo "shared-redis: SAVE failed"
+  mark_fail botkit-shared-redis
+fi
+ls -1t "$REDIS_DIR/backups"/redis.rdb.* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+
+# --- per-bot sqlite ---
 for d in "$BASE"/botkit-*/; do
   bot=$(basename "$d")
   [ "$bot" = "botkit-monitoring" ] && continue
+  [ "$bot" = "botkit-shared-redis" ] && continue
   envf="$d/.env"
-  [ -f "$envf" ] || { echo "skip $bot (no .env)"; continue; }
-  pass=$(grep "^REDIS_PASSWORD=" "$envf" | head -1 | cut -d= -f2-)
+  if [ ! -f "$envf" ]; then
+    if [ ! -f "$STATUS_DIR/$bot.ok" ] && [ ! -f "$STATUS_DIR/$bot.fail" ]; then
+      mark_ok "$bot"
+      echo "$bot: infra ok (no .env, no db)"
+    fi
+    continue
+  fi
   mkdir -p "$d/backups"
-  bdb_ok=0; brdb_ok=0; dbsz=0; rdbsz=0
-
+  bdb_ok=0
   if [ -f "$d/data/bot.db" ]; then
     cp "$d/data/bot.db" "$d/backups/bot.db.$TS"
     dbsz=$(stat -c%s "$d/backups/bot.db.$TS" 2>/dev/null || echo 0)
-    if sqlite_ok "$d/backups/bot.db.$TS"; then
+    if [ "${dbsz:-0}" -gt 0 ] && sqlite_ok "$d/backups/bot.db.$TS"; then
       bdb_ok=1
     else
-      echo "WARN $bot sqlite integrity FAILED"; FAIL=1
+      echo "WARN $bot sqlite integrity FAILED"
     fi
   else
-    echo "WARN $bot no data/bot.db"; FAIL=1
+    echo "WARN $bot no data/bot.db"
   fi
-
-  if [ -n "$pass" ]; then
-    ( cd "$d" && docker compose exec -T redis redis-cli -a "$pass" save >/dev/null 2>&1 )
-    ( cd "$d" && docker compose cp redis:/data/dump.rdb "$d/backups/redis.rdb.$TS" >/dev/null 2>&1 )
-    if [ -f "$d/backups/redis.rdb.$TS" ]; then
-      rdbsz=$(stat -c%s "$d/backups/redis.rdb.$TS" 2>/dev/null || echo 0)
-      magic=$(head -c5 "$d/backups/redis.rdb.$TS" 2>/dev/null || echo "")
-      if [ "$magic" = "REDIS" ] && [ "${rdbsz:-0}" -gt 0 ]; then
-        brdb_ok=1
-      else
-        echo "WARN $bot redis dump invalid (magic=$magic size=$rdbsz)"; FAIL=1
-      fi
-    else
-      echo "WARN $bot redis dump missing"; FAIL=1
-    fi
+  if [ "$bdb_ok" -eq 1 ] && [ "$REDIS_OK" -eq 1 ]; then
+    mark_ok "$bot"
+    echo "$bot: sqlite=ok redis=ok(shared)"
   else
-    echo "WARN $bot no REDIS_PASSWORD"; FAIL=1
+    mark_fail "$bot"
+    echo "$bot: sqlite=$bdb_ok redis=$REDIS_OK -> FAIL"
   fi
-
   ls -1t "$d/backups"/bot.db.* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
-  ls -1t "$d/backups"/redis.rdb.* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+done
 
-  if [ "$bdb_ok" -eq 1 ] && [ "$brdb_ok" -eq 1 ]; then
-    echo "$TS" > "$STATUS_DIR/$bot.ok"
-    rm -f "$STATUS_DIR/$bot.fail"
-    echo "$bot: sqlite=ok redis=ok"
-  else
-    echo "$TS" > "$STATUS_DIR/$bot.fail"
-    rm -f "$STATUS_DIR/$bot.ok"
-    echo "$bot: sqlite=$bdb_ok redis=$brdb_ok -> FAIL"
-  fi
+# --- infra-контейнеры без данных (botkit-backup-cron и т.п.) ---
+for d in "$BASE"/botkit-*/; do
+  bot=$(basename "$d")
+  [ "$bot" = "botkit-monitoring" ] && continue
+  [ "$bot" = "botkit-shared-redis" ] && continue
+  [ -f "$STATUS_DIR/$bot.ok" ] && continue
+  [ -d "$d/data" ] && [ -f "$d/data/bot.db" ] && continue
+  mark_ok "$bot"
+  echo "$bot: infra ok (no db/redis)"
 done
 
 exit $FAIL
