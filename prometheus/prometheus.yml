@@ -12,15 +12,15 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets:
-          - 127.0.0.1:8081 # bookingbot
-          - 127.0.0.1:8082 # leadgen
-          - 127.0.0.1:8083 # store
-          - 127.0.0.1:8084 # support
-          - 127.0.0.1:8085 # membership
-          - 127.0.0.1:8086 # pricesentry
-          - 127.0.0.1:8087 # docuflow
-          - 127.0.0.1:8088 # delivery
-          - 127.0.0.1:8089 # reminder
+          - 127.0.0.1:8081  # bookingbot
+          - 127.0.0.1:8082  # leadgen
+          - 127.0.0.1:8083  # store
+          - 127.0.0.1:8084  # support
+          - 127.0.0.1:8085  # membership
+          - 127.0.0.1:8086  # pricesentry
+          - 127.0.0.1:8087  # docuflow
+          - 127.0.0.1:8088  # delivery
+          - 127.0.0.1:8089  # reminder
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
@@ -33,7 +33,7 @@ scrape_configs:
       module: [ssl_check]
     static_configs:
       - targets:
-          - https://127.0.0.1:443/healthz # nginx TLS, self-signed cert ninelegsbots.duckdns.org
+          - https://127.0.0.1:443/healthz  # nginx TLS, self-signed cert ninelegsbots.duckdns.org
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
