@@ -4,7 +4,7 @@ on:
 
 jobs:
   smoke:
-  timeout-minutes: 15
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Run smoke_all.sh on prod via SSH
@@ -23,4 +23,4 @@ jobs:
               'cd /home/deploy/botkit-monitoring && ./ops/e2e/smoke_all.sh'
       - name: Report
         if: failure()
-        run: echo "::error::SMOKE_ALL FAILED — проверь деплой и повтори: gh workflow run e2e-smoke"
+        run: 'echo "::error::SMOKE_ALL FAILED — проверь деплой и повтори: gh workflow run e2e-smoke"'
