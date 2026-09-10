@@ -50,10 +50,7 @@ limits_config:
   max_label_value_length: 1024
   allow_structured_metadata: false
   volume_enabled: true
-
-table_manager:
-  retention_deletes_enabled: true
-  retention_period: 30d
+  retention_period: 720h
 
 schema_config:
   configs:
@@ -68,7 +65,8 @@ schema_config:
 compactor:
   working_directory: /var/loki/compactor
   compaction_interval: 10m
-  retention_enabled: false
+  retention_enabled: true
+  delete_request_store: s3
   retention_delete_delay: 2h
   retention_delete_worker_count: 150
 
