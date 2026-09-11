@@ -1,72 +1,75 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import pathlib
 import sys
+import time
 
 import requests
 
 from e2e.client import TelegramTester
-from e2e.config import load_scenarios, load_settings
+from e2e.config import Settings, load_scenarios, load_settings
 
-STATUS_DIR = pathlib.Path("/var/backups/botkit/e2e")
 AM_URL = "http://localhost:9093/api/v2/alerts"
-THROTTLE = 21600
+THROTTLE_S = 21600  # не чаще 1 алерта на бота за 6ч
 
 
-def token_for(bot: str) -> str:
-    p = pathlib.Path(f"/home/deploy/{bot}/.env")
+def token_for(bot: str, bots_dir: pathlib.Path) -> str:
+    p = bots_dir / f"{bot}/.env"
     for line in p.read_text().splitlines():
         if line.startswith("TELEGRAM_BOT_TOKEN="):
             return line.split("=", 1)[1].strip()
-    raise RuntimeError(f"no token in {bot}")
+    raise RuntimeError(f"no TELEGRAM_BOT_TOKEN in {p}")
 
 
-def send_alert(bot, reason):
-    last = STATUS_DIR / f".alerted.{bot}"
-    import time as _t
-    if last.exists() and _t.time() - last.stat().st_mtime < THROTTLE:
-        return
+def send_alert(bot: str, reason: str, status_dir: pathlib.Path) -> bool:
+    last = status_dir / f".alerted.{bot}"
+    now = time.time()
+    if last.exists() and now - last.stat().st_mtime < THROTTLE_S:
+        return False
     payload = [{"labels": {"alertname": "E2ETestFailed", "severity": "critical", "bot": bot, "service": "botkit-e2e"},
-                "annotations": {"summary": f"E2E fail {bot}", "description": reason}}]
+                "annotations": {"summary": f"E2E fail {bot}", "description": reason[:200]}}]
     try:
         requests.post(AM_URL, json=payload, timeout=5)
-        last.write_text(str(_t.time()))
-    except Exception:  # noqa: BLE001, S110
-        pass
+        last.write_text(str(now))
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARN alert send failed: {exc}")
+        return False
 
 
-async def run_all(scenarios, settings, status_dir):
+async def run_all(scenarios, settings: Settings, status_dir: pathlib.Path) -> int:
     status_dir.mkdir(parents=True, exist_ok=True)
+    problems = 0
     async with TelegramTester(settings) as t:
-        problems = 0
         for bot, sc in scenarios.items():
             err = ""
             try:
-                username = t.get_bot_username(token_for(bot))
+                username = t.get_bot_username(token_for(bot, settings.bots_dir))
                 replies = await t.run_scenario(username, sc.steps, settings.timeout)
-                ok = all(exp in rep for exp, rep in zip([s.expect for s in sc.steps], replies))
+                expected = [s.expect for s in sc.steps]
+                ok = len(replies) == len(expected) and all(exp in rep for exp, rep in zip(expected, replies))
             except Exception as e:  # noqa: BLE001
                 ok = False
                 err = str(e)
             if ok:
                 (status_dir / f"{bot}.ok").write_text("ok")
                 (status_dir / f"{bot}.fail").unlink(missing_ok=True)
+                (status_dir / f".alerted.{bot}").unlink(missing_ok=True)
                 print(f"OK {bot}")
             else:
                 (status_dir / f"{bot}.fail").write_text("fail")
                 (status_dir / f"{bot}.ok").unlink(missing_ok=True)
-                send_alert(bot, err or "unexpected reply")
-                print(f"FAIL {bot}")
+                sent = send_alert(bot, err or "unexpected reply", status_dir)
+                print(f"FAIL {bot} ({err or 'unexpected reply'}) alert={sent}")
                 problems += 1
-        return problems
+    return problems
 
 
-def main():
+def main() -> None:
     settings = load_settings()
-    scenarios = load_scenarios(os.environ.get("E2E_SCENARIOS", "scenarios.yml"))
-    problems = asyncio.run(run_all(scenarios, settings, STATUS_DIR))
+    scenarios = load_scenarios(settings.scenarios_file)
+    problems = asyncio.run(run_all(scenarios, settings, settings.status_dir))
     sys.exit(1 if problems else 0)
 
 
