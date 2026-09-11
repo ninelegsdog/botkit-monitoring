@@ -14,6 +14,9 @@ class Settings:
     phone: str
     timeout: int = 20
     bots_dir: Path = Path("/home/deploy")
+    status_dir: Path = Path("/var/backups/botkit/e2e")
+    session_file: str = "botkit-e2e"
+    scenarios_file: str = "scenarios.yml"
 
 
 @dataclass
@@ -34,6 +37,9 @@ def load_settings() -> Settings:
         phone=os.environ["TG_PHONE"],
         timeout=int(os.environ.get("E2E_TIMEOUT", "20")),
         bots_dir=Path(os.environ.get("E2E_BOTS_DIR", "/home/deploy")),
+        status_dir=Path(os.environ.get("E2E_STATUS_DIR", "/var/backups/botkit/e2e")),
+        session_file=os.environ.get("E2E_SESSION", "botkit-e2e"),
+        scenarios_file=os.environ.get("E2E_SCENARIOS", "scenarios.yml"),
     )
 
 
