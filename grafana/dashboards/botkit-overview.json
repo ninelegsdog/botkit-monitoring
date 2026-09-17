@@ -1,1 +1,285 @@
-{"title": "BotKit Overview", "uid": "botkit-overview", "timezone": "browser", "refresh": "30s", "templating": {"list": [{"name": "instance", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": "label_values(up{job=\"botkit\"}, instance)", "includeAll": true, "multi": true}]}, "panels": [{"id": 1, "type": "timeseries", "title": "Up", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 7}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "up{job=\"botkit\"}", "legendFormat": "{{instance}}"}], "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}}, {"id": 2, "type": "timeseries", "title": "Updates/s", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 7}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "rate(botkit_updates_total{job=\"botkit\"}[5m])", "legendFormat": "{{instance}}"}], "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}}, {"id": 3, "type": "timeseries", "title": "Errors/s", "gridPos": {"x": 0, "y": 14, "w": 12, "h": 7}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum by (instance) (rate(botkit_errors_total{job=\"botkit\"}[5m]))", "legendFormat": "{{instance}}"}], "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}}, {"id": 4, "type": "timeseries", "title": "Handler p95 (s)", "gridPos": {"x": 12, "y": 14, "w": 12, "h": 7}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "histogram_quantile(0.95, sum by (instance, le) (rate(botkit_handler_duration_seconds_bucket{job=\"botkit\"}[5m])))", "legendFormat": "{{instance}}"}], "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}}], "schemaVersion": 39, "version": 1}
+{
+  "title": "BotKit Overview",
+  "uid": "botkit-overview",
+  "timezone": "browser",
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(up{job=\"botkit\"}, instance)",
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "name": "service",
+        "label": "service",
+        "type": "custom",
+        "query": "bookingbot,delivery,docuflow,leadgen,membership,pricesentry,reminder,store,support",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Up",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"botkit\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Updates/s",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(botkit_updates_total{job=\"botkit\"}[5m])",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Errors/s",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance) (rate(botkit_errors_total{job=\"botkit\"}[5m]))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Handler p95 (s)",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(botkit_handler_duration_seconds_bucket{job=\"botkit\"}[5m])))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "Bot logs (all containers)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 11
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"botkit-logs\"} | json",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Log volume (5m)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"botkit-logs\"}[5m]))",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "traces",
+      "title": "Traces (by service)",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=~\"$service\"}",
+          "limit": 20,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Error ratio (errors/updates)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(botkit_errors_total{job=\"botkit\"}[5m])) / clamp_min(sum(rate(botkit_updates_total{job=\"botkit\"}[5m])), 0.001)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Handler p99 (s)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (instance, le) (rate(botkit_handler_duration_seconds_bucket{job=\"botkit\"}[5m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}
