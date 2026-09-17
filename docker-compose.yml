@@ -162,6 +162,7 @@ services:
     command:
       - --config.file=/etc/loki/config.yaml
       - --config.expand-env=true
+      - --frontend.instance-addr=127.0.0.1
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
