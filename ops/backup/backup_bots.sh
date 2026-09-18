@@ -39,11 +39,11 @@ REDIS_DIR="$BASE/botkit-shared-redis"
 REDIS_PASS=""
 [ -f "$REDIS_DIR/.env" ] && REDIS_PASS=$(grep "^REDIS_PASSWORD=" "$REDIS_DIR/.env" | head -1 | cut -d= -f2-)
 REDIS_OK=0
-LS_A=$(docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} lastsave 2>/dev/null || echo 0)
-if docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} bgsave >/dev/null 2>&1 && \
-   docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} info >/dev/null 2>&1; then
+LS_A=$(docker exec "$RC" redis-cli -p 6379 ${REDIS_PASS:+-a "$REDIS_PASS"} lastsave 2>/dev/null || echo 0)
+if docker exec "$RC" redis-cli -p 6379 ${REDIS_PASS:+-a "$REDIS_PASS"} bgsave >/dev/null 2>&1 && \
+   docker exec "$RC" redis-cli -p 6379 ${REDIS_PASS:+-a "$REDIS_PASS"} info >/dev/null 2>&1; then
   for _ in $(seq 1 15); do
-    LS_B=$(docker exec "$RC" redis-cli -p 6380 ${REDIS_PASS:+-a "$REDIS_PASS"} lastsave 2>/dev/null || echo 0)
+    LS_B=$(docker exec "$RC" redis-cli -p 6379 ${REDIS_PASS:+-a "$REDIS_PASS"} lastsave 2>/dev/null || echo 0)
     [ "${LS_B:-0}" -gt "${LS_A:-0}" ] 2>/dev/null && break
     sleep 1
   done
