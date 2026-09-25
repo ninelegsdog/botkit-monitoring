@@ -11,7 +11,7 @@ from e2e.client import TelegramTester
 from e2e.config import Settings, load_scenarios, load_settings
 
 AM_URL = "http://localhost:9093/api/v2/alerts"
-THROTTLE_S = 21600  # не чаще 1 алерта на бота за 6ч
+THROTTLE_S = 3600  # не чаще 1 алерта на бота за 1ч (E2)
 
 
 def token_for(bot: str, bots_dir: pathlib.Path) -> str:
@@ -27,8 +27,17 @@ def send_alert(bot: str, reason: str, status_dir: pathlib.Path) -> bool:
     now = time.time()
     if last.exists() and now - last.stat().st_mtime < THROTTLE_S:
         return False
-    payload = [{"labels": {"alertname": "E2ETestFailed", "severity": "critical", "bot": bot, "service": "botkit-e2e"},
-                "annotations": {"summary": f"E2E fail {bot}", "description": reason[:200]}}]
+    payload = [
+        {
+            "labels": {
+                "alertname": "E2ETestFailed",
+                "severity": "warning",  # E2: критичный НЕ по умолчанию
+                "bot": bot,
+                "service": "botkit-e2e",
+            },
+            "annotations": {"summary": f"E2E fail {bot}", "description": reason[:200]},
+        }
+    ]
     try:
         requests.post(AM_URL, json=payload, timeout=5)
         last.write_text(str(now))
