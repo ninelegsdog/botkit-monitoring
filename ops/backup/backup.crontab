@@ -1,0 +1,4 @@
+# export newest in-container sqlite backups (RPO 6h) to deploy-owned dir
+# 07 min after each 6h-cycle (bots write at 00/06/12/18:00)
+# push exported backups to private GH repo (offsite copy), 1h after backups
+17 1,7,13,19 * * * /pushoffsite.sh >> /export/export.log 2>&1

@@ -1,0 +1,9 @@
+[Unit]
+Description=Export latest botkit backups to deploy-owned directory
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/deploy/run_pullbackups.sh
+TimeoutStartSec=600
