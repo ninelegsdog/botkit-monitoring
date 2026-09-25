@@ -68,14 +68,6 @@ for d in "$BASE"/botkit-*/; do
   bot=$(basename "$d")
   [ "$bot" = "botkit-monitoring" ] && continue
   [ "$bot" = "botkit-shared-redis" ] && continue
-  envf="$d/.env"
-  if [ ! -f "$envf" ]; then
-    if [ ! -f "$STATUS_DIR/$bot.ok" ] && [ ! -f "$STATUS_DIR/$bot.fail" ]; then
-      mark_ok "$bot"
-      echo "$bot: infra ok (no .env, no db)"
-    fi
-    continue
-  fi
   mkdir -p "$d/backups"
   bdb_ok=0
   if [ -f "$d/data/bot.db" ]; then
@@ -86,8 +78,18 @@ for d in "$BASE"/botkit-*/; do
     else
       echo "WARN $bot sqlite integrity FAILED"
     fi
+  elif [ "$bot" = "botkit-backup-cron" ]; then
+    if [ "$REDIS_OK" -eq 1 ]; then
+      mark_ok "$bot"
+      echo "$bot: infra ok"
+    else
+      mark_fail "$bot"
+    fi
+    continue
   else
     echo "WARN $bot no data/bot.db"
+    mark_fail "$bot"
+    continue
   fi
   if [ "$bdb_ok" -eq 1 ] && [ "$REDIS_OK" -eq 1 ]; then
     mark_ok "$bot"
@@ -97,17 +99,6 @@ for d in "$BASE"/botkit-*/; do
     echo "$bot: sqlite=$bdb_ok redis=$REDIS_OK -> FAIL"
   fi
   ls -1t "$d/backups"/bot.db.* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
-done
-
-# --- infra-контейнеры без данных (botkit-backup-cron и т.п.) ---
-for d in "$BASE"/botkit-*/; do
-  bot=$(basename "$d")
-  [ "$bot" = "botkit-monitoring" ] && continue
-  [ "$bot" = "botkit-shared-redis" ] && continue
-  [ -f "$STATUS_DIR/$bot.ok" ] && continue
-  [ -d "$d/data" ] && [ -f "$d/data/bot.db" ] && continue
-  mark_ok "$bot"
-  echo "$bot: infra ok (no db/redis)"
 done
 
 exit $FAIL
