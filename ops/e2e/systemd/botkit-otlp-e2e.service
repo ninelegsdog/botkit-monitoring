@@ -1,0 +1,9 @@
+[Unit]
+Description=OTLP e2e probe (synthetic span -> Tempo)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/botkit-drift/otlp-e2e.sh
+TimeoutStartSec=120

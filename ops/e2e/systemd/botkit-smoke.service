@@ -1,0 +1,9 @@
+[Unit]
+Description=Botkit smoke test (webhook auth + health + logs)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/botkit-e2e/smoke_all.sh
+TimeoutStartSec=180

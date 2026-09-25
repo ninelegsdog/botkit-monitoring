@@ -1,0 +1,9 @@
+[Unit]
+Description=Botkit drift check every 15 min
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

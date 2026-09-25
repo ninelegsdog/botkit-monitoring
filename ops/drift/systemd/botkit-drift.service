@@ -1,0 +1,9 @@
+[Unit]
+Description=Botkit config drift check (canon vs prod)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/botkit-drift/check_drift.sh
+TimeoutStartSec=300
