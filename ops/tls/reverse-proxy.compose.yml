@@ -1,0 +1,46 @@
+# Reverse proxy (nginx) for Telegram webhooks — self-signed TLS.
+#
+# Why self-signed: the duckdns token we have does NOT own the domain
+# ninelegsbots.duckdns.org (duckdns API returns KO), so Let's Encrypt DNS-01
+# cannot issue a public cert. Telegram accepts a self-signed certificate as long
+# as its public part is pinned via setWebhook(certificate=...), so this works
+# without any external CA. The cert lives in ./certs (SAN ninelegsbots.duckdns.org,
+# 10y validity) and is mounted read-only into nginx.
+#
+# nginx uses network_mode: host so 127.0.0.1 in the container maps to the host
+# loopback where the bots publish 127.0.0.1:808x.
+#
+# Domain: ninelegsbots.duckdns.org -> 2.27.204.95 (inbound TCP 443 verified open).
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./logs:/var/log/nginx
+      - ./certbot-webroot:/var/www/certbot:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - DAC_OVERRIDE
+      - CHOWN
+      - SETUID
+      - SETGID
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    mem_limit: 256m
+    pids_limit: 128
