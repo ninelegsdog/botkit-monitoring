@@ -11,7 +11,7 @@ bot="${1:-}"
 d="/home/deploy/$bot"
 [ -d "$d" ] || { echo "no such bot dir: $d"; exit 1; }
 DB=$(ls -1t "$d"/backups/bot.db.* 2>/dev/null | head -1)
-RD=$(ls -1t "$d"/backups/redis.rdb.* 2>/dev/null | head -1)
+RD=$(ls -1t /home/deploy/botkit-shared-redis/backups/redis.rdb.* 2>/dev/null | head -1)
 [ -n "$DB" ] || { echo "NO sqlite backup for $bot"; exit 1; }
 [ -n "$RD" ] || { echo "NO redis backup for $bot"; exit 1; }
 
