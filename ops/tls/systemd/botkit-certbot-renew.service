@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew Let's Encrypt certificate for botkit webhooks
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=1800
+ExecStart=/usr/bin/docker run --rm --name botkit-certbot-renew -v /home/deploy/reverse-proxy/certbot-webroot:/var/www/certbot -v /home/deploy/reverse-proxy/letsencrypt:/etc/letsencrypt -v /home/deploy/reverse-proxy/scripts:/hooks:ro certbot/certbot@sha256:34ee91d2f43008eb78a007d22f23ed4b2eaa9a454cb27ca2c042b49527a695b4 renew --quiet --deploy-hook /hooks/certbot-deploy.sh
