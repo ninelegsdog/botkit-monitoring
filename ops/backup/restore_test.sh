@@ -8,7 +8,8 @@
 set -u
 bot="${1:-}"
 [ -z "$bot" ] && { echo "Usage: $0 <bot>"; exit 2; }
-d="/home/deploy/$bot"
+name="${bot#botkit-}"
+d="/home/deploy/botkit-$name"
 [ -d "$d" ] || { echo "no such bot dir: $d"; exit 1; }
 DB=$(ls -1t "$d"/backups/bot.db.* 2>/dev/null | head -1)
 RD=$(ls -1t /home/deploy/botkit-shared-redis/backups/redis.rdb.* 2>/dev/null | head -1)
@@ -38,10 +39,10 @@ magic=$(head -c5 "$RD"); sz=$(stat -c%s "$RD")
 echo "magic=$magic size=$sz"
 td=$(mktemp -d)
 cp "$RD" "$td/dump.rdb"
-docker run --rm -d --name redis-restest-"$bot" -v "$td:/data" redis:7-alpine redis-server --requirepass test >/dev/null
+docker run --rm -d --name redis-restest-"$name" -v "$td:/data" redis:7-alpine redis-server --requirepass test >/dev/null
 sleep 1
-db_size=$(docker exec redis-restest-"$bot" redis-cli -a test dbsize 2>/dev/null)
+db_size=$(docker exec redis-restest-"$name" redis-cli -a test dbsize 2>/dev/null)
 echo "redis dbsize (restored OK if number printed): $db_size"
-docker rm -f redis-restest-"$bot" >/dev/null
+docker rm -f redis-restest-"$name" >/dev/null
 rm -rf "$td"
 echo "== DONE: backup for $bot is restorable =="
