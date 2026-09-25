@@ -13,6 +13,7 @@ Exit 0 = PASS, 1 = FAIL (с именем проблемы).
 
 import re
 import sys
+from pathlib import Path
 
 import yaml
 
@@ -70,6 +71,11 @@ def main() -> int:
             bot = a[6:]
     if bot and bot.startswith("botkit-"):
         bot = bot[len("botkit-"):]
+    repo_root = Path(__file__).resolve().parents[1]
+    pyproject = repo_root / "pyproject.toml"
+    if pyproject.exists() and "sqlalchemy.ext.mypy.plugin" in pyproject.read_text(encoding="utf-8"):
+        print(fail("removed SQLAlchemy mypy plugin must not be configured"))
+        return 1
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
