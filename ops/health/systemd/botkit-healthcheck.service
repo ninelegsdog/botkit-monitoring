@@ -1,0 +1,8 @@
+[Unit]
+Description=Botkit uptime monitor (pings /health on all 9 bot ports)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/botkit-monitor/healthcheck.sh
