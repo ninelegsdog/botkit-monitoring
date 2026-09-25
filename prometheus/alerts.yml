@@ -10,6 +10,15 @@ groups:
           summary: "Bot {{ $labels.instance }} down"
           description: "/metrics недоступен 2+ минут на {{ $labels.instance }}"
 
+      - alert: OTLPCollectorDown
+        expr: probe_success{job="otlp-blackbox"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTLP collector {{ $labels.otlp_port }} unreachable"
+          description: "TCP connect to 127.0.0.1:{{ $labels.otlp_port }} (otel-collector) не проходит 3+ минут. Телеметрия ботов (Tempo) остановлена."
+
       - alert: BotWebhookDown
         expr: probe_success{job="blackbox-webhooks"} == 0
         for: 3m

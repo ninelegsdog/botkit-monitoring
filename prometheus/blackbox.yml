@@ -30,3 +30,8 @@ modules:
     tcp:
       tls: true
       preferred_ip_protocol: "ip4"
+
+  tcp_connect:
+    prober: tcp
+    tcp:
+      preferred_ip_protocol: "ip4"
