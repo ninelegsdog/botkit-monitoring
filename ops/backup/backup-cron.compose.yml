@@ -10,14 +10,11 @@ services:
       - /var/spool/cron
       - /var/run
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - /home/deploy/backups-export:/export
       - /home/deploy/pullbackups.sh:/pullbackups.sh:ro
-      - /home/deploy/run_pullbackups.sh:/run_pullbackups.sh:ro
       - /home/deploy/pushoffsite.sh:/pushoffsite.sh:ro
       - /home/deploy/.git-token:/etc/git-token:ro
       - /home/deploy/botkit-backup-cron/backup.crontab:/backup.crontab:ro
-      - /usr/bin/docker:/usr/bin/docker:ro
     entrypoint: |
       bash -c '
         DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y -qq cron git git >/dev/null 2>&1 &&
