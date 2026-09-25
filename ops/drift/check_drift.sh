@@ -59,11 +59,11 @@ for entry in $BOTS; do
   track=()
 
   # --- HEAD vs origin/main (tracking) ---
-  if ! git -C "$d" fetch --quiet origin main 2>>"$LOG"; then
+  if ! git -c safe.directory="$d" -C "$d" fetch --quiet origin main 2>>"$LOG"; then
     track+=("git fetch failed")
   else
-    head=$(git -C "$d" rev-parse HEAD 2>/dev/null)
-    origin=$(git -C "$d" rev-parse origin/main 2>/dev/null)
+    head=$(git -c safe.directory="$d" -C "$d" rev-parse HEAD 2>/dev/null)
+    origin=$(git -c safe.directory="$d" -C "$d" rev-parse origin/main 2>/dev/null)
     if [ -n "$head" ] && [ -n "$origin" ] && [ "$head" != "$origin" ]; then
       track+=("HEAD ${head:0:7} != origin/main ${origin:0:7}")
     elif [ -z "$origin" ]; then
