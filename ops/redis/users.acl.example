@@ -1,0 +1,2 @@
+user default on >REPLACE_DEFAULT_PASSWORD ~* +@all
+user botkit_example on >REPLACE_BOT_PASSWORD ~fsm:example:* ~throttle:example:* +@all -@dangerous -select -swapdb -flushall -flushdb -acl -config -shutdown -slaveof -replicaof

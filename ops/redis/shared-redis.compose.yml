@@ -1,0 +1,103 @@
+services:
+  redis:
+    image: redis@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    user: "999:1000"
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --bind 0.0.0.0 --protected-mode no --databases 16 --maxmemory 512mb --maxmemory-policy allkeys-lru --port 6379 --requirepass \"$REDIS_PASSWORD\" --aclfile /data/users.acl"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    env_file:
+      - .env
+    networks:
+      default:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_bookingbot:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_delivery:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_docuflow:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_leadgen:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_membership:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_pricesentry:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_reminder:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_store:
+        aliases:
+          - redis
+          - botkit-shared-redis
+      botkit_support:
+        aliases:
+          - redis
+          - botkit-shared-redis
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis-data:/data
+      - ./users.acl:/data/users.acl:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 640m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+networks:
+  default:
+  botkit_bookingbot:
+    external: true
+    name: botkit_bookingbot
+  botkit_delivery:
+    external: true
+    name: botkit_delivery
+  botkit_docuflow:
+    external: true
+    name: botkit_docuflow
+  botkit_leadgen:
+    external: true
+    name: botkit_leadgen
+  botkit_membership:
+    external: true
+    name: botkit_membership
+  botkit_pricesentry:
+    external: true
+    name: botkit_pricesentry
+  botkit_reminder:
+    external: true
+    name: botkit_reminder
+  botkit_store:
+    external: true
+    name: botkit_store
+  botkit_support:
+    external: true
+    name: botkit_support
+
+volumes:
+  redis-data:
