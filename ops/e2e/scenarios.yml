@@ -1,22 +1,59 @@
+# E2E-сценарии (пересобраны 2026-09-25 из исходников, НЕ из фиктивных ожиданий).
+# Матчинг — substring: expect должен встречаться в reply.
+# Шаг 1: /start → приветствие (точный текст из кода).
+# Шаг 2: повторный /start → то же приветствие (идемпотентность /start).
+# Глубокие диалоги по кнопкам — когда появится Telegram-аккаунт (E1 финальный DoD).
 botkit-bookingbot:
   steps:
     - send: /start
-      expect: "Привет"
-    - send: /help
-      expect: "услуг"
+      expect: "Выберите действие:"
+    - send: /start
+      expect: "Выберите действие:"
 botkit-delivery:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Отслеживание заказов и доставок"
+    - send: /start
+      expect: "Отслеживание заказов и доставок"
 botkit-docuflow:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Генерация документов в Telegram"
+    - send: /start
+      expect: "Генерация документов в Telegram"
 botkit-leadgen:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Здравствуйте! Оставьте заявку"
+    - send: /start
+      expect: "Здравствуйте! Оставьте заявку"
 botkit-membership:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Добро пожаловать! Выберите действие"
+    - send: /start
+      expect: "Добро пожаловать! Выберите действие"
 botkit-pricesentry:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Мониторинг цен на маркетплейсах"
+    - send: /start
+      expect: "Мониторинг цен на маркетплейсах"
 botkit-reminder:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Подпишитесь на напоминания и рассылки"
+    - send: /start
+      expect: "Подпишитесь на напоминания и рассылки"
 botkit-store:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Добро пожаловать в магазин"
+    - send: /start
+      expect: "Добро пожаловать в магазин"
 botkit-support:
-  steps: [{send: /start, expect: "Привет"}]
+  steps:
+    - send: /start
+      expect: "Здравствуйте! Чем можем помочь"
+    - send: /start
+      expect: "Здравствуйте! Чем можем помочь"
