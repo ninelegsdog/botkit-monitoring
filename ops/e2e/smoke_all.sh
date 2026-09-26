@@ -23,11 +23,22 @@ if [ -f "$FLEET_ENV" ]; then
 fi
 BOTS="${FLEET:-bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089}"
 
-LOG=/var/log/botkit-smoke.log
+LOG="${BOTKIT_SMOKE_LOG:-/var/log/botkit-smoke.log}"
 AM_URL="http://127.0.0.1:9093/api/v2/alerts"
-ALERTED_DIR=/var/backups/botkit-smoke/alerted
+ALERTED_DIR="${BOTKIT_SMOKE_ALERTED_DIR:-/var/backups/botkit-smoke/alerted}"
 THROTTLE=3600   # 1h между повторными алертами на бота
 mkdir -p "$ALERTED_DIR"
+
+# An unwritable log is not a cosmetic problem: the run would report PASS with no
+# evidence, and the alert throttle markers would silently never appear, so every run
+# would re-alert. Refuse up front instead of losing the audit trail for 9 bots of work.
+for sink in "$LOG" "$ALERTED_DIR"; do
+  dir=$(dirname "$sink")
+  [ -d "$dir" ] || { mkdir -p "$dir" 2>/dev/null || { echo "FATAL: cannot create $dir (run as root, or set BOTKIT_SMOKE_LOG/BOTKIT_SMOKE_ALERTED_DIR)" >&2; exit 2; }; }
+  [ -w "$dir" ] || { echo "FATAL: $dir is not writable by $(id -un) (run as root, or set BOTKIT_SMOKE_LOG/BOTKIT_SMOKE_ALERTED_DIR)" >&2; exit 2; }
+  [ -e "$sink" ] && [ ! -w "$sink" ] && { echo "FATAL: $sink is not writable by $(id -un) (run as root, or set BOTKIT_SMOKE_LOG/BOTKIT_SMOKE_ALERTED_DIR)" >&2; exit 2; }
+done
+: >> "$LOG" || { echo "FATAL: cannot append to $LOG" >&2; exit 2; }
 
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "$(now) $*" >> "$LOG"; }

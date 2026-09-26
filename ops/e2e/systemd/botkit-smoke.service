@@ -5,5 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/root/botkit-e2e/smoke_all.sh
+# The synced canon, not the copy under /root/botkit-e2e. That copy still carried
+# `curl -k`, so the scheduled run kept reporting "external TLS ok" for a certificate
+# no third party accepts — the check everyone trusted was the one not in effect.
+# botkit-sync-canon keeps this path current; a copy cannot keep itself current.
+ExecStart=/home/deploy/botkit-monitoring/ops/e2e/smoke_all.sh
 TimeoutStartSec=180
