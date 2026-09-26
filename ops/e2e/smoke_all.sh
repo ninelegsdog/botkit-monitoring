@@ -142,7 +142,7 @@ for entry in $BOTS; do
     send_alert "$name" "$reason"
     FAIL=1
   else
-    log "OK $name"
+    log "OK $name tls=$tls auth=$auth noauth=$noauth health=$health"
   fi
 done
 

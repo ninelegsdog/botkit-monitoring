@@ -94,6 +94,16 @@ def test_tls_state_reaches_the_report_and_the_alert_reason():
     assert 'reason="tls=$tls' in text, "tls state missing from the alert reason"
 
 
+def test_tls_state_reaches_the_persistent_log():
+    """The table goes to stdout/journald; the log file is the artifact people grep.
+
+    A verdict that only exists in the console output is lost by the next rotation, and
+    `OK <bot>` alone would record nothing about the certificate.
+    """
+    text = script_text()
+    assert re.search(r'log "OK \$name tls=\$tls', text), "the OK line must record the tls state"
+
+
 def test_readme_no_longer_claims_a_self_signed_certificate():
     """The stale justification must not survive: it is what made -k look intentional."""
     text = README.read_text()
