@@ -12,6 +12,14 @@ jobs:
         run: |
           docker run --rm --entrypoint promtool -v "$PWD/prometheus:/etc/prometheus" prom/prometheus:v3.8.1 \
             check config /etc/prometheus/prometheus.yml
+      - name: promtool check rules
+        # A rules file that does not parse is an alert that never fires - the same silence
+        # that let a 15-day outage look healthy. `check config` alone does not cover it.
+        # blackbox.yml is a scrape config, not rule groups, so it stays under `check
+        # config`; feeding it to `check rules` fails on a type mismatch, not on a defect.
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD/prometheus:/etc/prometheus" prom/prometheus:v3.8.1 \
+            check rules /etc/prometheus/alerts.yml
       - name: yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
