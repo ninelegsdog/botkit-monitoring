@@ -3,3 +3,7 @@ extends: default
 rules:
   line-length: disable
   document-start: disable
+  # YAML 1.1 resolves the bare key `on:` to the boolean true, which yamllint
+  # reports on every GitHub workflow. `on` is the correct spelling there.
+  truthy:
+    allowed-values: ["true", "false", "on"]
