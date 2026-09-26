@@ -19,6 +19,7 @@ BotkitWebhookDeliveryFailed in Alertmanager (throttled per bot).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import socket
 import ssl
@@ -27,7 +28,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -50,6 +51,7 @@ STATE_ROOT = Path("/var/lib/botkit-webhook-check")
 ALERT_ROOT = Path("/var/backups/botkit-webhook-check/alerted")
 AM_URL = "http://127.0.0.1:9093/api/v2/alerts"
 ALERT_THROTTLE_S = 3600
+ALERT_HOLD_H = 6
 HTTP_OK = 200
 API_TIMEOUT_S = 15
 
@@ -206,46 +208,92 @@ def write_pending(bot: str, value: int) -> None:
     path.write_text(str(value))
 
 
-def send_alert(bot: str, severity: str, reason: str, log: Log) -> None:
-    if severity != CRITICAL:
-        log(f"WARN {bot}: {reason} (no alert, severity={severity})")
-        return
-    marker = ALERT_ROOT / bot
-    try:
-        if marker.is_file() and time.time() - marker.stat().st_mtime < ALERT_THROTTLE_S:
-            log(f"ALERT throttled {bot}: {reason}")
-            return
-    except OSError:
-        pass
-
-    description = reason.replace('"', "'")[:200]
-    payload = [
-        {
-            "labels": {
-                "alertname": "BotkitWebhookDeliveryFailed",
-                "severity": CRITICAL,
-                "bot": bot,
-                "service": "botkit-webhook-check",
-            },
-            "annotations": {
-                "summary": f"telegram webhook delivery broken: {bot}",
-                "description": description,
-            },
-        }
-    ]
+def _post_alerts(payload: list[dict]) -> str | None:
+    """Post alerts to Alertmanager. Returns an error string, or None on success."""
     try:
         request = urllib.request.Request(
             AM_URL, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(request, timeout=5) as response:
-            ok = response.status == HTTP_OK
+            if response.status != HTTP_OK:
+                return f"HTTP {response.status}"
     except (urllib.error.URLError, OSError) as exc:
-        log(f"ALERT send FAILED ({bot}): {exc}")
+        return str(exc)
+    return None
+
+
+def alert_labels(bot: str) -> dict[str, str]:
+    return {
+        "alertname": "BotkitWebhookDeliveryFailed",
+        "severity": CRITICAL,
+        "bot": bot,
+        "service": "botkit-webhook-check",
+    }
+
+
+def send_alert(bot: str, severity: str, reason: str, log: Log) -> None:
+    """Raise BotkitWebhookDeliveryFailed and keep it firing until the bot recovers.
+
+    endsAt is pushed into the future on purpose: a bare POST lets Alertmanager
+    expire the alert after five minutes, which turns a persistent fifteen-day
+    outage into a notification every hour that never reads as "still broken".
+    The throttle limits how often receivers are notified, not how long the alert
+    stays open; resolve_alert() closes it.
+    """
+    if severity != CRITICAL:
+        log(f"WARN {bot}: {reason} (no alert, severity={severity})")
         return
-    if ok:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(now_iso())
-        log(f"ALERT sent ({bot}): {reason}")
+
+    marker = ALERT_ROOT / bot
+    throttled = False
+    with contextlib.suppress(OSError):
+        throttled = marker.is_file() and time.time() - marker.stat().st_mtime < ALERT_THROTTLE_S
+
+    now = datetime.now(timezone.utc)
+    payload = [
+        {
+            "labels": alert_labels(bot),
+            "annotations": {
+                "summary": f"telegram webhook delivery broken: {bot}",
+                "description": reason.replace('"', "'")[:200],
+            },
+            "startsAt": now.isoformat(),
+            "endsAt": (now + timedelta(hours=ALERT_HOLD_H)).isoformat(),
+        }
+    ]
+    error = _post_alerts(payload)
+    if error:
+        log(f"ALERT send FAILED ({bot}): {error}")
+        return
+    if throttled:
+        log(f"ALERT still firing, notification throttled ({bot}): {reason}")
+        return
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(now_iso())
+    log(f"ALERT sent ({bot}): {reason}")
+
+
+def resolve_alert(bot: str, log: Log) -> None:
+    """Close a previously raised alert as soon as the bot passes again."""
+    marker = ALERT_ROOT / bot
+    if not _readable_file(marker):
+        return
+    now = datetime.now(timezone.utc)
+    error = _post_alerts(
+        [
+            {
+                "labels": alert_labels(bot),
+                "annotations": {"summary": f"telegram webhook delivery restored: {bot}"},
+                "startsAt": now.isoformat(),
+                "endsAt": now.isoformat(),
+            }
+        ]
+    )
+    if error:
+        log(f"ALERT resolve FAILED ({bot}): {error} (Alertmanager will expire it)")
+        return
+    marker.unlink(missing_ok=True)
+    log(f"ALERT resolved ({bot})")
 
 
 def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str, log: Log) -> int:
@@ -286,6 +334,7 @@ def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str,
         pending = info.pending_update_count if info else "?"
         pinned = info.has_custom_certificate if info else "?"
         log(f"{bot.name:12s} OK (pending={pending} custom_cert={pinned})")
+        resolve_alert(bot.name, log)
         return 0
 
     reason = summarise(failures)

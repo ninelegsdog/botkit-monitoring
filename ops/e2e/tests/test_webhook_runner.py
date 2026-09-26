@@ -7,6 +7,8 @@ how coverage gaps appear in the first place.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 import webhook_check as runner
@@ -99,3 +101,74 @@ def test_bot_selection_by_name(tmp_path):
     contract = runner.load_contract(str(path))
     selected = [b for b in contract.fleet if b.name == "beta"]
     assert [b.name for b in selected] == ["beta"]
+
+
+def test_alert_is_posted_with_a_future_ends_at(tmp_path, monkeypatch):
+    """A bare POST would let Alertmanager expire the alert in 5 minutes."""
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(runner, "ALERT_ROOT", tmp_path / "alerted")
+    monkeypatch.setattr(runner, "_post_alerts", lambda payload: posted.append(payload) or None)
+    log = runner.Log(tmp_path / "log", echo=False)
+
+    runner.send_alert("leadgen", "critical", "C5 broken", log)
+
+    alert = posted[0][0]
+    starts = datetime.fromisoformat(alert["startsAt"])
+    ends = datetime.fromisoformat(alert["endsAt"])
+    assert ends > starts
+    assert (ends - starts) == timedelta(hours=runner.ALERT_HOLD_H)
+    assert alert["labels"]["alertname"] == "BotkitWebhookDeliveryFailed"
+
+
+def test_repeat_alert_stays_firing_but_does_not_notify(tmp_path, monkeypatch):
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(runner, "ALERT_ROOT", tmp_path / "alerted")
+    monkeypatch.setattr(runner, "_post_alerts", lambda payload: posted.append(payload) or None)
+    log = runner.Log(tmp_path / "log", echo=False)
+
+    runner.send_alert("leadgen", "critical", "first", log)
+    runner.send_alert("leadgen", "critical", "second", log)
+
+    assert len(posted) == 2, "the alert must be re-posted so it keeps firing"
+    assert "notification throttled" in (tmp_path / "log").read_text()
+
+
+def test_resolve_closes_alert_and_clears_marker(tmp_path, monkeypatch):
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(runner, "ALERT_ROOT", tmp_path / "alerted")
+    monkeypatch.setattr(runner, "_post_alerts", lambda payload: posted.append(payload) or None)
+    log = runner.Log(tmp_path / "log", echo=False)
+
+    runner.send_alert("leadgen", "critical", "broken", log)
+    runner.resolve_alert("leadgen", log)
+
+    assert len(posted) == 2
+    assert posted[1][0]["endsAt"] == posted[1][0]["startsAt"], "resolve must expire the alert immediately"
+    assert not (tmp_path / "alerted" / "leadgen").exists()
+
+
+def test_resolve_without_marker_does_nothing(tmp_path, monkeypatch):
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(runner, "ALERT_ROOT", tmp_path / "alerted")
+    monkeypatch.setattr(runner, "_post_alerts", lambda payload: posted.append(payload) or None)
+    runner.resolve_alert("quiet", runner.Log(tmp_path / "log", echo=False))
+    assert posted == []
+
+
+def test_alert_send_failure_leaves_no_marker(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "ALERT_ROOT", tmp_path / "alerted")
+    monkeypatch.setattr(runner, "_post_alerts", lambda payload: "connection refused")
+    log = runner.Log(tmp_path / "log", echo=False)
+
+    runner.send_alert("leadgen", "critical", "broken", log)
+
+    assert "ALERT send FAILED" in (tmp_path / "log").read_text()
+    assert not (tmp_path / "alerted" / "leadgen").exists(), "must retry on the next run"
+
+
+def test_warning_never_raises_an_alert(tmp_path, monkeypatch):
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(runner, "ALERT_ROOT", tmp_path / "alerted")
+    monkeypatch.setattr(runner, "_post_alerts", lambda payload: posted.append(payload) or None)
+    runner.send_alert("leadgen", "warning", "C6 sustained pending", runner.Log(tmp_path / "log", echo=False))
+    assert posted == []
