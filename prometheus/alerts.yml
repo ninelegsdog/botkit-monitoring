@@ -188,3 +188,12 @@ groups:
         annotations:
           summary: "node_exporter недоступен"
           description: "Метрики хоста пропали — {{ $labels.instance }}"
+
+      - alert: BotWebhookTLSUntrusted
+        expr: probe_success{job="webhook-trusted"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Telegram не сможет проверить TLS webhook: {{ $labels.bot }}"
+          description: "Публичный серт не проходит проверку доверия (job webhook-trusted, модуль tls_trusted). Симптом: getWebhookInfo вернёт 'certificate verify failed' и апдейты перестанут доставляться. Проверить цепочку серта и has_custom_certificate."

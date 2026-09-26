@@ -31,6 +31,19 @@ modules:
       tls: true
       preferred_ip_protocol: "ip4"
 
+  # Verification ENABLED - unlike ssl_check and duckdns_http above, which both skip it.
+  # This is the only probe that can notice a certificate no third party trusts,
+  # which is exactly how Telegram stopped delivering on 11.09.2026.
+  tls_trusted:
+    prober: http
+    http:
+      preferred_ip_protocol: "ip4"
+      valid_status_codes: [200, 401, 403, 404, 405]
+      follow_redirects: true
+      tls_config:
+        server_name: "ninelegsbots.duckdns.org"
+        insecure_skip_verify: false
+
   tcp_connect:
     prober: tcp
     tcp:

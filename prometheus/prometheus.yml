@@ -67,6 +67,31 @@ scrape_configs:
       - target_label: __address__
         replacement: 127.0.0.1:9115
 
+  - job_name: webhook-trusted
+    metrics_path: /probe
+    params:
+      module: [tls_trusted]
+    static_configs:
+      - targets:
+          - https://ninelegsbots.duckdns.org/webhook/bookingbot
+          - https://ninelegsbots.duckdns.org/webhook/leadgen
+          - https://ninelegsbots.duckdns.org/webhook/store
+          - https://ninelegsbots.duckdns.org/webhook/support
+          - https://ninelegsbots.duckdns.org/webhook/membership
+          - https://ninelegsbots.duckdns.org/webhook/pricesentry
+          - https://ninelegsbots.duckdns.org/webhook/docuflow
+          - https://ninelegsbots.duckdns.org/webhook/delivery
+          - https://ninelegsbots.duckdns.org/webhook/reminder
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__address__]
+        regex: .*webhook/(\w+)
+        target_label: bot
+        replacement: ${1}
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
   - job_name: otlp-blackbox
     metrics_path: /probe
     params:
