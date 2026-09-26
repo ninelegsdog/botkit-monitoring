@@ -31,7 +31,7 @@ def send_alert(bot: str, reason: str, status_dir: pathlib.Path) -> bool:
         {
             "labels": {
                 "alertname": "E2ETestFailed",
-                "severity": "warning",  # E2: критичный НЕ по умолчанию
+                "severity": "warning",  # E2: не critical by default
                 "bot": bot,
                 "service": "botkit-e2e",
             },
@@ -42,7 +42,7 @@ def send_alert(bot: str, reason: str, status_dir: pathlib.Path) -> bool:
         requests.post(AM_URL, json=payload, timeout=5)
         last.write_text(str(now))
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"WARN alert send failed: {exc}")
         return False
 
@@ -57,8 +57,9 @@ async def run_all(scenarios, settings: Settings, status_dir: pathlib.Path) -> in
                 username = t.get_bot_username(token_for(bot, settings.bots_dir))
                 replies = await t.run_scenario(username, sc.steps, settings.timeout)
                 expected = [s.expect for s in sc.steps]
-                ok = len(replies) == len(expected) and all(exp in rep for exp, rep in zip(expected, replies))
-            except Exception as e:  # noqa: BLE001
+                matched = all(exp in rep for exp, rep in zip(expected, replies, strict=False))
+                ok = len(replies) == len(expected) and matched
+            except Exception as e:
                 ok = False
                 err = str(e)
             if ok:

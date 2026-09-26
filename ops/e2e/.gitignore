@@ -2,4 +2,5 @@
 *.session
 __pycache__/
 venv/
+.venv/
 *.egg-info/

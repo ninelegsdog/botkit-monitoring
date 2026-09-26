@@ -19,6 +19,6 @@ def test_bot_responds(bot):
     async def go():
         async with TelegramTester(settings) as t:
             reps = await t.run_scenario(username, sc.steps, settings.timeout)
-            return all(e in r for e, r in zip([s.expect for s in sc.steps], reps))
+            return all(e in r for e, r in zip([s.expect for s in sc.steps], reps, strict=False))
 
     assert asyncio.run(go())
