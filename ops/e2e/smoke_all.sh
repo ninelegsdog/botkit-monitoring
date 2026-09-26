@@ -2,7 +2,8 @@
 #
 # smoke_all.sh — полный путь деплоя: публичный webhook (с секретом) ->
 # nginx -> бот -> лог aiogram; + negative-auth (401 без токена);
-# + /health; + статус контейнера. Запускать на ПРОДЕ.
+# + /health; + статус контейнера; + проверка TLS с реальной верификацией.
+# Запускать на ПРОДЕ.
 # Exit: 0 если все проверки зелёные, 1 иначе.
 # Алерт BotkitSmokeFailed в Alertmanager при любом FAIL (троттлинг 1ч на бота).
 # Лог: /var/log/botkit-smoke.log
@@ -31,6 +32,34 @@ mkdir -p "$ALERTED_DIR"
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "$(now) $*" >> "$LOG"; }
 
+# Public webhook calls verify TLS: no -k. A check that skips verification reports a
+# green "external TLS ok" for a certificate no third party would accept, which is how
+# 11.09-26.09 stayed invisible. curl distinguishes the failure in its exit code, so
+# keep it: rc 60 is an untrusted chain, 51 a name mismatch, and both must be readable in
+# the smoke output instead of collapsing into a bare http_code=000.
+HTTP_CODE=000
+CURL_RC=0
+CURL_ERR=""
+post_public() { # $1=url, rest: curl args -> HTTP_CODE, CURL_RC, CURL_ERR
+  local url="$1" err rc
+  shift
+  err=$(mktemp)
+  HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$@" "$url" 2>"$err")
+  rc=$?
+  CURL_RC=$rc
+  CURL_ERR=$(tr '\n' ' ' <"$err" | cut -c1-120)
+  rm -f "$err"
+}
+
+tls_state() { # CURL_RC/HTTP_CODE -> one word for the report
+  if [ "$CURL_RC" = "0" ]; then echo verified
+  elif [ "$CURL_RC" = "60" ]; then echo TLS_UNTRUSTED
+  elif [ "$CURL_RC" = "51" ]; then echo TLS_NAME_MISMATCH
+  elif [ "$CURL_RC" = "6" ] || [ "$CURL_RC" = "7" ]; then echo TLS_UNREACHABLE
+  elif [ "$CURL_RC" = "28" ]; then echo TIMEOUT
+  else echo "rc=$CURL_RC"; fi
+}
+
 send_alert() { # $1=bot $2=reason
   local bot reason last age
   bot="$1"; reason="$2"
@@ -48,7 +77,7 @@ send_alert() { # $1=bot $2=reason
 
 FAIL=0
 log "SMOKE start"
-echo "bot | auth200 | noauth401 | health200 | loghit | up"
+echo "bot | tls | auth200 | noauth401 | health200 | loghit | up"
 for entry in $BOTS; do
   name="${entry%%:*}"
   port="${entry##*:}"
@@ -61,20 +90,25 @@ for entry in $BOTS; do
     sec=$(grep -E '^TELEGRAM_WEBHOOK_SECRET=' "/usr/local/etc/botkit/$name.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r')
   fi
   if [ -z "$sec" ]; then
-    echo "$name | MISSING-SECRET"; log "FAIL $name MISSING-SECRET"
+    echo "$name | SKIP | - | - | - | - | MISSING-SECRET"; log "FAIL $name MISSING-SECRET"
     send_alert "$name" "webhook secret missing"
     FAIL=1; continue
   fi
 
   uid=$(( $(date +%s%N) ))
 
-  auth=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 8 -X POST "$DOMAIN/$name" \
+  post_public "$DOMAIN/$name" -X POST \
     -H "X-Telegram-Bot-Api-Secret-Token: $sec" \
     -H "Content-Type: application/json" \
-    -d "{\"update_id\":$uid}")
+    -d "{\"update_id\":$uid}"
+  auth="$HTTP_CODE"
+  auth_rc="$CURL_RC"
+  auth_err="$CURL_ERR"
+  tls="$(tls_state)"
 
-  noauth=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 8 -X POST "$DOMAIN/$name" \
-    -H "Content-Type: application/json" -d "{\"update_id\":$uid}")
+  post_public "$DOMAIN/$name" -X POST \
+    -H "Content-Type: application/json" -d "{\"update_id\":$uid}"
+  noauth="$HTTP_CODE"
 
   health=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE:$port/health")
 
@@ -84,13 +118,15 @@ for entry in $BOTS; do
   if docker ps --format '{{.Names}}' | grep -qx "$ctr"; then up="up"; else up="DOWN"; bot_fail=1; fi
 
   [ "$auth" = "200" ] || bot_fail=1
+  [ "$tls" = "verified" ] || bot_fail=1
   [ "$noauth" = "401" ] || bot_fail=1
   [ "$health" = "200" ] || bot_fail=1
   [ "$loghit" -gt 0 ] || bot_fail=1
 
-  echo "$name | $auth | $noauth | $health | $loghit | $up"
+  echo "$name | $tls | $auth | $noauth | $health | $loghit | $up"
   if [ "$bot_fail" -ne 0 ]; then
-    reason="auth=$auth noauth=$noauth health=$health loghit=$loghit up=$up"
+    reason="tls=$tls auth=$auth(rc=$auth_rc) noauth=$noauth health=$health loghit=$loghit up=$up"
+    [ -n "$auth_err" ] && reason="$reason err=$auth_err"
     log "FAIL $name $reason"
     send_alert "$name" "$reason"
     FAIL=1

@@ -16,7 +16,12 @@
 cd /home/deploy/botkit-monitoring && ./ops/e2e/smoke_all.sh && ./ops/e2e/backup-restore-e2e.sh
 ./ops/e2e/e2e-alerting.sh   # ~5 мин, сам чистится
 ```
-Exit 0 = PASS. `curl -k`: сертификат бота самоподписанный (так задумано).
+Exit 0 = PASS. Публичный webhook проверяется **с верификацией TLS** (`curl` без
+`-k`): колонка `tls` в выводе показывает результат рукопожатия, а не только HTTP-код.
+`TLS_UNTRUSTED` / `TLS_NAME_MISMATCH` в reason означают, что сертификат не проходит
+проверку у стороннего клиента — именно такое состояние Telegram отвергал 15 дней при
+полностью зелёных контейнерах. Обоснование «сертификат самоподписанный, так задумано»
+больше не действует: с 25.09 сертификат Let's Encrypt, проверку отключать нельзя.
 
 ## Layer B: конверсия с ботами через Telegram (telethon userbot)
 
@@ -41,7 +46,7 @@ cd /home/deploy/botkit-monitoring/ops/e2e
 `SSH_KEY` (приватный deploy-ключ из prod authorized_keys), `PROD_HOST`,
 `PROD_USER`.
 ## Прогоны (2026-09-10, live-прод)
-- smoke_all.sh: PASS 9/9 (auth 200 / noauth 401 / health 200 / loghit / up).
+- smoke_all.sh: PASS 9/9 (tls verified / auth 200 / noauth 401 / health 200 / loghit / up).
 - e2e-alerting.sh: PASS (round trip Prometheus->AM->Telegram firing; resolve->Telegram;
   подтверждено счётчиками AM + отсутствием active-алерта). Оператор получил 2 сообщения.
   Уникальный alertname на прогон — иначе repeat_interval=4h давит повторное уведомление.
