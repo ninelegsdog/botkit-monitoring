@@ -16,3 +16,42 @@ jobs:
         uses: ibiqlik/action-yamllint@v3
         with:
           config_file: .yamllint.yml
+
+  # The ops checks are the only things that can tell that updates are actually
+  # deliverable, and until 26.09 nothing ran them here: a monitoring repository whose CI
+  # validated only YAML is a repository that cannot notice its own checks rotting.
+  ops:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.0.0
+      - name: install tools
+        # The runner's own Python instead of actions/setup-python: pinning that action
+        # needs a commit SHA, and a guessed one is worse than no pin at all.
+        run: |
+          python --version
+          python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet "ruff==0.16.0" -r ops/e2e/requirements.txt
+      - name: ruff
+        # Pinned so a new lint rule cannot turn the main branch red on an unrelated push.
+        run: ruff check --output-format=concise .
+      - name: pytest
+        working-directory: ops/e2e
+        run: |
+          PYTHONPATH=. python -m pytest -q
+      - name: shellcheck
+        # ops/drift/validate_compose.py is what shellcheck flagged here, and it flagged a
+        # real "used before it took effect" bug inside a drift check - a check whose
+        # silence is what let a 15-day outage look healthy.
+        run: |
+          shellcheck --version
+          find ops -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
+      - name: shell syntax
+        run: |
+          find ops -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      # systemd-analyze verify was tried here and dropped: on any real machine it also
+      # resolves the host's own units and reports every ExecStart path as missing, so it
+      # is always red and trains people to ignore it. The directives that actually broke
+      # in production - ExecStart pointing at a stale copy, the deploy hook that could not
+      # execute - are asserted in ops/e2e/tests/test_smoke_schedule.py and
+      # test_certbot_deploy.py, which fail loudly and mean it.

@@ -22,7 +22,8 @@ send_alert() {
     local age=$(( NOW - $(stat -c %Y "$last") ))
     [ "$age" -lt "$THROTTLE" ] && return 0
   fi
-  local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local payload="[{\"labels\":{\"alertname\":\"BackupProblem\",\"severity\":\"critical\",\"bot\":\"$bot\",\"service\":\"botkit-backup\"},\"annotations\":{\"summary\":\"Backup problem: $bot\",\"description\":\"$reason (checked $ts)\"}}]"
   curl -s -o /dev/null -XPOST "$AM_URL" -H 'Content-Type: application/json' -d "$payload" || true
   echo "$ts" > "$last"

@@ -3,7 +3,6 @@
 # docker cp пишет как клиент <- контейнер-демон; здесь клиент root -> chown/chmod для deploy.
 set -u
 EXPORT=/home/deploy/backups-export  # host-namespace for docker cp
-LOGDIR=${DEST:-/home/deploy/backups-export}
 BOTS="membership bookingbot reminder leadgen store support delivery docuflow pricesentry"
 TS=$(date +%Y-%m-%d-%H%M)
 for b in $BOTS; do

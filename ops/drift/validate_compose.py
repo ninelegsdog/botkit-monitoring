@@ -59,7 +59,10 @@ def check_duplicates(root) -> list[str]:
     return problems
 
 
-def main() -> int:
+def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915
+    # A flat sequence of independent checks, each returning the first problem it finds.
+    # Splitting it into helpers would only hide the order in which the compose file is
+    # judged, and the ordering is the point: the report has to name one concrete defect.
     args = [a for a in sys.argv[1:]]
     if not args:
         print("Usage: validate_compose.py <compose.yml> [--bot=<name>]")

@@ -45,7 +45,6 @@ send_alert() { # $1=sev $2=reason
 now_ns=$(date +%s%N)
 trace_id=$(printf '%032x' "$now_ns")
 span_id=$(printf '%016x' $(( (now_ns >> 8) & 0xFFFFFFFFFFFF )))
-start_ms=$(date +%s)000
 dur_ms=$((RANDOM % 40 + 10))
 start_ns=$(( now_ns - dur_ms*1000000 ))
 end_ns=$now_ns

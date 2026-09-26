@@ -19,6 +19,10 @@ ENV_ROOT=/usr/local/etc/botkit
 VALIDATOR=/opt/botkit-drift/validate_compose.py
 CHANNEL=""
 CONF=/opt/botkit-rollout/version.conf
+# The rollout marker is optional and its path is a variable, so shellcheck cannot
+# follow it. set -e is not enabled here, so a missing marker leaves CHANNEL at the
+# pinned default instead of aborting the drift check.
+# shellcheck disable=SC1090
 [ -f "$CONF" ] && source "$CONF"
 CHANNEL="${CHANNEL:-v0.8.2}"
 
@@ -45,7 +49,8 @@ now_s() { date +%s; }
 log() { echo "$(now) $*" >> "$LOG"; }
 
 send_alert() { # $1=b $2=sev $3=reason
-  local bot="$1" sev="$2" reason="$3" last="$ALERTED_DIR/$bot" age
+  local bot="$1" sev="$2" reason="$3"
+  local last="$ALERTED_DIR/$bot" age
   if [ -f "$last" ]; then
     age=$(( $(now_s) - $(stat -c %Y "$last") ))
     [ "$age" -lt "$THROTTLE" ] && { log "ALERT throttled $bot ($reason)"; return 0; }

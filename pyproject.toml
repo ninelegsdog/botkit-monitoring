@@ -1,0 +1,36 @@
+# Tooling configuration for the whole repository.
+#
+# The strict ruff rules lived only in ops/e2e/pyproject.toml, so every other Python file
+# in the repo - ops/drift/validate_compose.py - was linted with ruff's defaults (E and F
+# only) and nobody noticed. A lint gate that silently covers part of the tree is the same
+# shape of problem as a smoke test that runs a stale copy: the green says less than it
+# appears to.
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [".ruff_cache", ".pytest_cache", "__pycache__", "*.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "PL"]
+ignore = [
+  "PLR0913",
+  # RUF001/RUF002/RUF003 flag Cyrillic homoglyphs in prose. The documentation in this
+  # repository is Russian, where "с", "о" and "е" are the letters one would expect, so
+  # every Cyrillic comment produced a false positive. The rule earns its keep on
+  # identifiers, and every identifier here is ASCII.
+  "RUF001",
+  "RUF002",
+  "RUF003",
+]
+
+[tool.ruff.lint.isort]
+# Without this, isort treats the local packages as third-party and happily deletes the
+# blank line that separates them from pytest - which reads as a regression in a diff
+# that was only meant to move a config file.
+known-first-party = ["e2e", "webhook_check", "webhook_check_lib"]
+
+[tool.ruff.lint.per-file-ignores]
+# "**/" matters: the pattern is matched against the path relative to the directory
+# holding this file, so a bare "tests/*" silently stopped matching ops/e2e/tests the
+# moment the config moved to the repository root.
+"**/tests/*" = ["PLR2004"]
