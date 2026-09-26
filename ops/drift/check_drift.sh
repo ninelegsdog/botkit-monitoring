@@ -12,6 +12,8 @@
 # Лог: /var/log/botkit-drift.log; троттлинг алертов 6ч на бота.
 set -uo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 DEPLOY_ROOT=/home/deploy
 ENV_ROOT=/usr/local/etc/botkit
 VALIDATOR=/opt/botkit-drift/validate_compose.py
@@ -28,7 +30,14 @@ AM_URL="http://127.0.0.1:9093/api/v2/alerts"
 THROTTLE=21600   # 6h между повторами алерта
 GRACE_S=1800     # 30 мин окно rollout для tracking-mismatch
 
-BOTS="bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089"
+# Флот — из ops/lib/fleet.env (единый источник истины); путь overridable для прод-копии.
+FLEET_ENV="${BOTKIT_FLEET_ENV:-$HERE/../lib/fleet.env}"
+[ -f "$FLEET_ENV" ] || FLEET_ENV=/root/botkit-webhook-check/fleet.env
+if [ -f "$FLEET_ENV" ]; then
+  # shellcheck disable=SC1090
+  . "$FLEET_ENV"
+fi
+BOTS="${FLEET:-bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089}"
 
 mkdir -p "$STATE_DIR" "$WATCH_DIR" "$ALERTED_DIR"
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }

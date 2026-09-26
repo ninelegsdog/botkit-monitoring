@@ -9,9 +9,18 @@
 #
 set -u
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BASE="http://127.0.0.1"
-DOMAIN="https://ninelegsbots.duckdns.org/webhook"
-BOTS="bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089"
+DOMAIN="https://${WEBHOOK_DOMAIN:-ninelegsbots.duckdns.org}/webhook"
+# Флот — из ops/lib/fleet.env (единый источник истины); путь overridable для прод-копии.
+FLEET_ENV="${BOTKIT_FLEET_ENV:-$HERE/../lib/fleet.env}"
+[ -f "$FLEET_ENV" ] || FLEET_ENV=/root/botkit-webhook-check/fleet.env
+if [ -f "$FLEET_ENV" ]; then
+  # shellcheck disable=SC1090
+  . "$FLEET_ENV"
+fi
+BOTS="${FLEET:-bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089}"
 
 LOG=/var/log/botkit-smoke.log
 AM_URL="http://127.0.0.1:9093/api/v2/alerts"
