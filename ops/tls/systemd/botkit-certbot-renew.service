@@ -6,4 +6,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 TimeoutStartSec=1800
-ExecStart=/usr/bin/docker run --rm --name botkit-certbot-renew -v /home/deploy/reverse-proxy/certbot-webroot:/var/www/certbot -v /home/deploy/reverse-proxy/letsencrypt:/etc/letsencrypt -v /home/deploy/reverse-proxy/scripts:/hooks:ro certbot/certbot@sha256:34ee91d2f43008eb78a007d22f23ed4b2eaa9a454cb27ca2c042b49527a695b4 renew --quiet --deploy-hook /hooks/certbot-deploy.sh
+# The container only renews. The deploy hook used to run inside it, where there is
+# neither bash nor the docker CLI, so it died with "env: can't execute 'bash'" (rc=127)
+# and a renewed certificate never reached the directory nginx reads. The deployment and
+# its verification need the host, so they run in ExecStartPost below.
+ExecStart=/usr/bin/docker run --rm --name botkit-certbot-renew -v /home/deploy/reverse-proxy/certbot-webroot:/var/www/certbot -v /home/deploy/reverse-proxy/letsencrypt:/etc/letsencrypt certbot/certbot@sha256:34ee91d2f43008eb78a007d22f23ed4b2eaa9a454cb27ca2c042b49527a695b4 renew --quiet
+# Idempotent: exits 0 without touching anything when the public key is unchanged, so a
+# day with no renewal due stays green. No /var/run/docker.sock is mounted into the
+# renewal container - a renew job does not need host root to write a file.
+ExecStartPost=/home/deploy/botkit-monitoring/ops/tls/certbot-deploy.sh
