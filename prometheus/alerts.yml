@@ -212,3 +212,30 @@ groups:
         annotations:
           summary: "Telegram не сможет проверить TLS webhook: {{ $labels.bot }}"
           description: "Публичный серт не проходит проверку доверия (job webhook-trusted, модуль tls_trusted). Симптом: getWebhookInfo вернёт 'certificate verify failed' и апдейты перестанут доставляться. Проверить цепочку серта и has_custom_certificate."
+
+      - alert: BotkitBackupStale
+        expr: botkit_backup_age_seconds > 28800
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Offsite-бэкап потока {{ $labels.stream }} старше 8 часов"
+          description: "Последний снапшот restic старше 8 часов (факт: {{ $value | humanizeDuration }}). Снапшот идёт каждые 6 часов — минимум один запуск пропущен либо репозиторий на мониторе недоступен."
+
+      - alert: BotkitBackupFailed
+        expr: botkit_backup_ok == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Проверка offsite-бэкапа потока {{ $labels.stream }} не проходит"
+          description: "botkit-restic-check не смог получить список снапшотов (репозиторий недоступен) либо снапшот старше порога 15+ минут."
+
+      - alert: BotkitBackupCheckMissing
+        expr: absent(botkit_backup_ok)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Метрики проверки бэкапа нет"
+          description: "botkit_backup_ok не поступает от node_exporter более 30 минут — таймер botkit-restic-check.timer не работает, свежесть бэкапов не контролируется."
