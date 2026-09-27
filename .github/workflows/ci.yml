@@ -20,6 +20,14 @@ jobs:
         run: |
           docker run --rm --entrypoint promtool -v "$PWD/prometheus:/etc/prometheus" prom/prometheus:v3.8.1 \
             check rules /etc/prometheus/alerts.yml
+      - name: promtool check metrics
+        # Generated from the same renderers the production path uses, so this cannot rot
+        # into passing against a fixture that no longer matches the code. Without it, a
+        # malformed gauge (unescaped label, HELP/TYPE mismatch) is only discovered when
+        # the fleet is already relying on it.
+        run: |
+          python ops/e2e/webhook_metrics.py \
+            | docker run --rm -i --entrypoint promtool prom/prometheus:v3.8.1 check metrics
       - name: yamllint
         uses: ibiqlik/action-yamllint@v3
         with:

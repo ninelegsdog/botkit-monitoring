@@ -12,8 +12,9 @@ public certificate must verify for a third party, without insecure_skip_verify)
 is performed here against the public endpoint.
 
 Run on the production host as root from a systemd timer. Exit 0 when every bot
-passes, 1 otherwise. Logs to /var/log/botkit-webhook-check.log and raises
-BotkitWebhookDeliveryFailed in Alertmanager (throttled per bot).
+passes, 1 otherwise. Logs to /var/log/botkit-webhook-check.log, raises
+BotkitWebhookDeliveryFailed in Alertmanager (throttled per bot), and exports the
+verdict as node-exporter textfile gauges for Grafana (see webhook_metrics).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import webhook_metrics
 from webhook_check_lib import (
     CRITICAL,
     Failure,
@@ -45,8 +47,19 @@ from webhook_check_lib import (
     worst_severity,
 )
 
+
+@dataclass
+class BotResult:
+    """What one bot's checks concluded, in the shape the exporters need."""
+
+    bot: str
+    contract_ok: bool
+    pending: int | None
+
+
 ENV_ROOT = Path("/usr/local/etc/botkit")
 LOG_PATH = Path("/var/log/botkit-webhook-check.log")
+METRICS_DIR = Path("/var/lib/node-exporter-textfile")
 STATE_ROOT = Path("/var/lib/botkit-webhook-check")
 ALERT_ROOT = Path("/var/backups/botkit-webhook-check/alerted")
 AM_URL = "http://127.0.0.1:9093/api/v2/alerts"
@@ -296,15 +309,15 @@ def resolve_alert(bot: str, log: Log) -> None:
     log(f"ALERT resolved ({bot})")
 
 
-def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str, log: Log) -> int:
-    """Run every applicable check for one bot. Returns 1 when it is unhealthy."""
+def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str, log: Log) -> BotResult:
+    """Run every applicable check for one bot. Returns its verdict, not a bare int."""
     try:
         token = read_token(bot.name)
     except FileNotFoundError as exc:
         reason = str(exc)
         log(f"{bot.name:12s} FAIL C1[critical]: {reason}")
         send_alert(bot.name, CRITICAL, reason, log)
-        return 1
+        return BotResult(bot.name, False, None)
 
     failures: list[Failure] = []
     info: WebhookInfo | None = None
@@ -335,12 +348,42 @@ def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str,
         pinned = info.has_custom_certificate if info else "?"
         log(f"{bot.name:12s} OK (pending={pending} custom_cert={pinned})")
         resolve_alert(bot.name, log)
-        return 0
+        return BotResult(bot.name, True, info.pending_update_count if info else None)
 
     reason = summarise(failures)
     log(f"{bot.name:12s} FAIL {reason}")
     send_alert(bot.name, str(severity), reason, log)
-    return 1
+    return BotResult(bot.name, False, info.pending_update_count if info else None)
+
+
+def publish_metrics(
+    results: list[BotResult], tls_ok: bool | None, rc: int, full_run: bool, log: Log
+) -> None:
+    """Export the verdicts as node-exporter textfile gauges.
+
+    A write failure is logged loudly and deliberately does not change the exit code: the
+    exit code answers "is delivery broken", and a metrics directory that cannot be
+    written is a different fault. Folding them together would make the alert say the
+    wrong thing. What catches the failure is that the timestamp stops advancing, so
+    BotWebhookCheckStale fires on its own.
+    """
+    try:
+        for result in results:
+            webhook_metrics.publish_bot(
+                result.bot, result.contract_ok, result.pending, METRICS_DIR
+            )
+        if not full_run:
+            # A --bot run deliberately leaves the run file alone. That timestamp is a lease
+            # on the checker being alive, and the only run entitled to renew it is the one
+            # that inspected the whole fleet: otherwise a person poking one bot by hand
+            # keeps BotWebhookCheckStale quiet forever after the timer itself has died.
+            return
+        dropped = webhook_metrics.prune([r.bot for r in results], METRICS_DIR)
+        if dropped:
+            log(f"metrics pruned bots no longer in the fleet: {','.join(dropped)}")
+        webhook_metrics.publish_run(tls_ok, rc, int(time.time()), METRICS_DIR)
+    except (OSError, ValueError) as exc:
+        log(f"ERROR metrics not published ({exc}) — Grafana will go stale on purpose")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -363,8 +406,10 @@ def main(argv: list[str] | None = None) -> int:
 
     log(f"CHECK start quick={args.quick} fault={args.fault} domain={domain} fleet={contract.source} bots={len(bots)}")
 
+    tls_ok: bool | None = None
     if not args.quick and args.fault == "none":
         tls_problem = check_public_tls(domain)
+        tls_ok = tls_problem is None
         if tls_problem:
             log(f"C7 CRITICAL: {domain}: {tls_problem}")
             for bot in bots:
@@ -373,8 +418,18 @@ def main(argv: list[str] | None = None) -> int:
             log("C7 OK public TLS verifies for a third party")
 
     rc = 0
+    results: list[BotResult] = []
     for bot in bots:
-        rc |= check_bot(bot, args, domain, expected_ip, log)
+        result = check_bot(bot, args, domain, expected_ip, log)
+        results.append(result)
+        rc |= 0 if result.contract_ok else 1
+
+    # Exported only for a real full run: a --quick run skips TLS and pending state, and a
+    # --fault run deliberately lies, so publishing either would poison the fleet verdict
+    # that BotWebhookCheckStale exists to protect. A --bot run writes its own bot's file
+    # and nothing else.
+    if not args.quick and args.fault == "none":
+        publish_metrics(results, tls_ok, rc, args.bot is None, log)
 
     log(f"CHECK end rc={rc}")
     return rc

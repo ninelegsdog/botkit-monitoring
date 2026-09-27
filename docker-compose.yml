@@ -199,8 +199,13 @@ services:
     command:
       - --path.rootfs=/host
       - --web.listen-address=127.0.0.1:9100
+      # Where webhook_check.py writes its verdict. Without this flag the collector is
+      # off by default and the directory below is mounted for nothing, which looks like
+      # a working setup right up until Grafana shows no botkit_webhook_* series.
+      - --collector.textfile.directory=/textfile
     volumes:
       - /:/host:ro,rslave
+      - /var/lib/node-exporter-textfile:/textfile:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:

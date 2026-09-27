@@ -149,6 +149,21 @@ groups:
         annotations:
           summary: "Нет метрик ошибок: {{ $labels.instance }}"
           description: "botkit_errors_total отсутствует при активном трафике — error/burn-алерты не работают"
+
+      # absent() is load-bearing here. A staleness expression on its own matches nothing
+      # while the series is missing, so a checker that never ran, or one whose metrics
+      # directory became unwritable, would leave the fleet green forever - the exact
+      # failure of 26.09.2026, one level further up.
+      - alert: BotWebhookCheckStale
+        expr: |
+          absent(botkit_webhook_check_timestamp)
+          or (time() - botkit_webhook_check_timestamp > 1800)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Проверка доставки webhook не обновляет метрики"
+          description: "botkit_webhook_check_timestamp не меняется больше 30 минут или отсутствует совсем. Пока метрики заморожены, их прежние значения читаются как «доставка работает» — тот же класс отказа, что был 26.09.2026. Проверить: systemctl status botkit-webhook-check.timer; journalctl -u botkit-webhook-check; строки 'ERROR metrics not published' в /var/log/botkit-webhook-check.log; ls -l /var/lib/node-exporter-textfile"
   - name: node
     rules:
       - alert: HostDiskSpaceHigh

@@ -12,4 +12,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=false
-ReadWritePaths=/var/log /var/lib/botkit-webhook-check /var/backups/botkit-webhook-check
+# Created and made writable by systemd, so the unit does not depend on someone having
+# run mkdir by hand on a fresh host. The leading '-' in ReadWritePaths keeps this from
+# becoming a start failure if the directory is ever missing: a checker that refuses to
+# start publishes no metrics and looks identical to a healthy fleet.
+StateDirectory=node-exporter-textfile
+ReadWritePaths=/var/log /var/lib/botkit-webhook-check /var/backups/botkit-webhook-check -/var/lib/node-exporter-textfile
