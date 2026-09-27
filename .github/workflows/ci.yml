@@ -28,6 +28,13 @@ jobs:
         run: |
           python ops/e2e/webhook_metrics.py \
             | docker run --rm -i --entrypoint promtool prom/prometheus:v3.8.1 check metrics
+      - name: dashboard json
+        # A provisioned dashboard is read by Grafana, not by anything in this repository, so a
+        # syntax error there breaks the panels silently while every other gate stays green.
+        # This is the JSON twin of the `check rules` step: the file that must parse is the
+        # one the product actually reads.
+        run: |
+          find grafana -name '*.json' -print0 | xargs -0 -n1 python -m json.tool --sort-keys
       - name: yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
