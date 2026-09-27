@@ -78,14 +78,6 @@ for d in "$BASE"/botkit-*/; do
     else
       echo "WARN $bot sqlite integrity FAILED"
     fi
-  elif [ "$bot" = "botkit-backup-cron" ]; then
-    if [ "$REDIS_OK" -eq 1 ]; then
-      mark_ok "$bot"
-      echo "$bot: infra ok"
-    else
-      mark_fail "$bot"
-    fi
-    continue
   else
     echo "WARN $bot no data/bot.db"
     mark_fail "$bot"
