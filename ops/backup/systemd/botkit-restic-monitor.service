@@ -1,0 +1,10 @@
+[Unit]
+Description=Offsite backup stream monitor (restic -> monitor)
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/botkit-restic-backup monitor
+Nice=10
+IOSchedulingClass=idle

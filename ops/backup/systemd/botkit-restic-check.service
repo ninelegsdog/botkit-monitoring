@@ -1,0 +1,7 @@
+[Unit]
+Description=Check offsite restic backup freshness
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/botkit-restic-check
+Nice=10

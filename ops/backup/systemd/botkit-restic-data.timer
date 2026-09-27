@@ -1,0 +1,8 @@
+[Unit]
+Description=Offsite data backup every 6 hours
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:30:00
+Persistent=true
+RandomizedDelaySec=120
+[Install]
+WantedBy=timers.target

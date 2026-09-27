@@ -48,20 +48,69 @@ scp ops/backup/systemd/check-backs.* root@2.27.204.95:/etc/systemd/system/
 ssh root@2.27.204.95 'systemctl daemon-reload && systemctl enable --now check-backs.timer'
 ```
 
-## АКТУАЛЬНАЯ архитектура (fix(backup), 2026-09)
-- sqlite: бэкап живёт в cron-контейнере botkit-backup-cron (bash /run_pullbackups.sh ->
-  docker run runner). Деплой-скрипт: /home/deploy/pullbackups.sh (копия в репо
-  ops/backup/pullbackups.sh). Механика: в-контейнерный python выполняет ONLINE BACKUP API
-  (src.backup(dst), uri mode=ro) в /app/backups/export.<TS>.db -> export в
-  /home/deploy/backups-export/<bot>/export.<TS>.db (keep 40) -> pushoffsite.sh копирует в
-  приватный GH-репо (offsite-копия, 1h после).
-- redis: отдельно root-скриптом backup_bots.sh (systemd backup-bots.timer, раз в 6ч):
-  bgsave через shared redis (6380) -> /home/deploy/botkit-shared-redis/backups/redis.rdb.<TS>.
-- статусы: /var/backups/botkit/status/<bot>.ok|.fail, таймер check-backs.timer раз в час
-  отправляет скрипт на проверку.
-- ВАЖНО: docker cp локальную часть пути резолвит В FS КЛИЕНТА (где работает CLI), НЕ
-  на docker-демоне. Изнутри cron-контейнера путь должен существовать там же; при патче
-  на хосте (docker cp ... /home/deploy/... ) это корректно. Не запускать docker cp из
-  контейнера с путём, который есть только на хосте через bind => та же трапка.
-- e2e-проверка: ops/e2e/backup-restore-e2e.sh (свежесть export + PRAGMA integrity_check
-  + rdb). Прогонять после правок схемы бэкапа.
+## Offsite-бэкап: restic вместо git (2026-09-27)
+
+Git-based offsite (`ninelegsdog/botkit-backups-offsite`) удалён. Причины, а не вкус:
+у git нет удаления снапшотов, нет шифрования и нет retention, а токен лежал на проде
+в `/home/deploy/.git-token` и **не попал в ротацию инцидента 335** — 15 дней отказа
+никто не заметил, потому что свежесть offsite никто не проверял. Репозиторий удалён,
+токен отозван, подтверждено `HTTP 401` от `api.github.com`.
+
+Транспорт — SFTP, не git и не публичное хранилище:
+
+```
+sftp:botkit-backup@31.76.11.198:/repo-data      # боты + секреты, пароль №1
+sftp:botkit-backup@31.76.11.198:/repo-monitor   # метрики, пароль №2 (другой!)
+```
+
+На приёмнике пользователь `botkit-backup`: `ChrootDirectory /srv/botkit-backup`,
+`ForceCommand internal-sftp`, `restrict` в `authorized_keys`. Сессия не может выйти
+из каталога репозиториев, команда через SSH не выполняется вовсе.
+
+| поток | содержимое | retention | расписание |
+|-------|-----------|-----------|------------|
+| `data` | 9 ботов (online-backup API), локальные копии, Redis RDB, 12 `.env` | 14/8/6 | `00,06,12,18:30` |
+| `monitor` | тома prometheus/grafana/alertmanager/loki/minio/tempo + конфиг | 3/2 | `01,07,13,19:00` |
+
+Согласованность важнее скорости: `restic-backup.sh` снимает каждую БД через
+`sqlite3.backup()` внутри контейнера. Обычный `cp` (как в `backup_bots.sh`) может
+дать надорванную копию, если база пишется в этот момент.
+
+## Свежесть offsite под контролем
+
+`restic-check.sh` (`botkit-restic-check.timer`, раз в 15 мин) пишет в textfile-коллектор
+`botkit_backup_age_seconds` / `botkit_backup_ok` и при проблеме шлёт алерт в Alertmanager.
+Алерты в `prometheus/alerts.yml`: `BotkitBackupStale`, `BotkitBackupFailed`,
+`BotkitBackupCheckMissing`, `BotkitBackupRunFailed` (часть ботов без согласованного снимка).
+`check_backups.sh` (час) остался контролировать локальные копии — это разные вещи.
+
+## Восстановление из offsite
+
+```bash
+export RESTIC_PASSWORD_FILE=/root/.botkit-backup/data.pw
+R="sftp:botkit-backup@31.76.11.198:/repo-data"
+restic -r "$R" snapshots
+restic -r "$R" restore latest --tag data --target /tmp/drill
+# обязательная проверка целостности:
+python3 -c "import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute('pragma integrity_check').fetchone()[0])" \
+  /tmp/drill/var/lib/botkit-restic-stage/bookingbot/export.<TS>.db
+```
+
+`integrity_check` обязан вернуть `ok`. Дальше — точечная замена файла бота
+по процедуре ниже (разрушающей части касаться только после успешной проверки).
+
+## Пароли репозиториев
+
+Два независимых пароля, по одному на репозиторий. Лежат только на проде:
+`/root/.botkit-backup/data.pw` и `/root/.botkit-backup/monitor.pw` (600).
+**Второго экземпляра паролей нет нигде — потеря прода означает потерю бэкапов.**
+Шаблон параметров и процедура bootstrap: `ops/backup/restic.env.example`.
+
+## Деплой бэкап-части
+
+```bash
+scp ops/backup/restic-backup.sh ops/backup/restic-check.sh root@2.27.204.95:/usr/local/sbin/
+scp ops/backup/systemd/botkit-restic-*           root@2.27.204.95:/etc/systemd/system/
+ssh root@2.27.204.95 'chmod 750 /usr/local/sbin/botkit-restic-*; systemctl daemon-reload; \
+  systemctl enable --now botkit-restic-data.timer botkit-restic-monitor.timer botkit-restic-check.timer'
+```

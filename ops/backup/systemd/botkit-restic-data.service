@@ -1,0 +1,12 @@
+[Unit]
+Description=Offsite backup stream data (restic -> monitor)
+After=network-online.target docker.service
+Requires=docker.service
+Requires=backup-bots.service
+After=backup-bots.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/botkit-restic-backup data
+Nice=10
+IOSchedulingClass=idle

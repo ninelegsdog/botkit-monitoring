@@ -239,3 +239,12 @@ groups:
         annotations:
           summary: "Метрики проверки бэкапа нет"
           description: "botkit_backup_ok не поступает от node_exporter более 30 минут — таймер botkit-restic-check.timer не работает, свежесть бэкапов не контролируется."
+
+      - alert: BotkitBackupRunFailed
+        expr: botkit_backup_consistent_failures > 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} ботов без согласованного снимка БД"
+          description: "botkit-restic-backup не смог снять БД через sqlite online-backup API как минимум для части ботов. Снапшот существует, но в нём может не быть последних изменений этих ботов — возраст бэкапа этого не покажет."
