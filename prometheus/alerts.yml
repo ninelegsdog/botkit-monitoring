@@ -186,6 +186,30 @@ groups:
           summary: "RAM >92%"
           description: "Занято {{ $value | humanizePercentage }}. Swap: {{ $labels.instance }}"
 
+      # Давление памяти по PSI, а не по заполненности.
+      # HostMemHigh смотрит на MemAvailable и молчит, пока доступно больше 8% RAM.
+      # На проде это 55% (2.1 GiB) — хост формально здоров, и это правильно: под Linux
+      # swap заполняется холодными страницами и не уменьшается, поэтому доля swap
+      # доля swap намеренно НЕ алертится — иначе правило висит постоянно и учит игнорировать
+      # алерты. Реальный признак проблемы — не заполненность, а Stall: система тратит
+      # время, полностью встав на памяти. Это то, что HostMemHigh увидеть не может.
+      - alert: HostMemoryPressureHigh
+        expr: rate(node_pressure_memory_stalled_seconds_total[5m]) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Давление памяти: {{ $value | humanizePercentage }} времени в полной остановке"
+          description: "Более 1% времени за последние 5 минут все задачи хоста стояли на памяти (PSI memory stalled). MemAvailable при этом может выглядеть нормальным, поэтому HostMemHigh молчит. Проверить: cat /proc/pressure/memory; free -m; docker stats — по контейнерам вверху списка."
+      - alert: HostMemoryPressureCritical
+        expr: rate(node_pressure_memory_stalled_seconds_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Давление памяти: {{ $value | humanizePercentage }} — хост упирается в память"
+          description: "Более 5% времени задачи стояли на памяти. Ожидается рост load и таймауты у ботов. Действовать: снять крупнейшего потребителя (docker stats --no-stream --sort=-mem) и/или поднять лимит host, добавив swap."
+
       - alert: HostLoadHigh
         expr: node_load1 > 6
         for: 15m
