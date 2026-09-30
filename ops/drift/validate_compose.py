@@ -19,7 +19,7 @@ import yaml
 
 EXPECTED_ENV = {  # обязательный ПОДНАБОР (6-ботов канон имеет ещё WEBHOOK_SECRET)
     "BIND_HOST", "METRICS_PORT", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET",
-    "WEBHOOK_SECRET_TOKEN", "WEBHOOK_URL", "WEBHOOK_CERT_PATH", "ADMIN_PASSWORD",
+    "WEBHOOK_SECRET_TOKEN", "WEBHOOK_URL", "ADMIN_PASSWORD",
     "ADMIN_IDS", "REDIS_URL", "DATABASE_URL", "DB_PATH", "OTEL_EXPORTER_OTLP_ENDPOINT",
 }
 REQUIRED_SERVICE_KEYS = {
@@ -27,6 +27,15 @@ REQUIRED_SERVICE_KEYS = {
     "networks", "extra_hosts", "environment", "ports", "volumes", "healthcheck",
     "restart", "mem_limit",
 }
+# Inverse gate. WEBHOOK_CERT_PATH used to be a REQUIRED env key here, which is how the
+# certificate pin survived every refactor: the validator kept demanding the value that
+# fed setWebhook(certificate=...). Passing it pins the bot to that certificate's CA, so
+# a certbot renewal silently stops update delivery on the next restart (26.09 incident).
+# Absence of the key is not enough on its own - it has to be actively rejected - or the
+# pin comes back with the next copy-paste. TLS terminates at nginx with a publicly
+# trusted certificate, so no bot may receive one.
+FORBIDDEN_ENV = {"WEBHOOK_CERT_PATH"}
+FORBIDDEN_VOLUME_SUBSTRINGS = ("/app/certs", "reverse-proxy/certs", "fullchain.pem")
 
 
 def fail(msg: str) -> str:
@@ -151,6 +160,21 @@ def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915
         return 1
     checks.append(("environment covers required expected keys",
                    set(env_keys) >= EXPECTED_ENV))
+
+    # forbidden: the bot must not be handed a TLS certificate
+    pinned_env = sorted(FORBIDDEN_ENV & set(env_keys))
+    if pinned_env:
+        print(fail(f"webhook certificate pinning is forbidden in environment: {pinned_env}"))
+        return 1
+    checks.append(("environment carries no webhook certificate pin",
+                   not pinned_env))
+    volumes = bot_svc.get("volumes") or []
+    pinned_vols = [v for v in volumes
+                   if any(s in str(v) for s in FORBIDDEN_VOLUME_SUBSTRINGS)]
+    if pinned_vols:
+        print(fail(f"webhook certificate mounted into bot: {pinned_vols}"))
+        return 1
+    checks.append(("bot has no TLS certificate mount", not pinned_vols))
 
     # extra_hosts
     eh = bot_svc.get("extra_hosts")
