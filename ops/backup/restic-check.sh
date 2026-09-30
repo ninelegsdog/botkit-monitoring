@@ -2,9 +2,9 @@
 # Проверка свежести offsite-бэкапов (restic): метрика для Prometheus + алерт в Alertmanager
 set -uo pipefail
 PREFIX="[botkit-restic-check]"
-PW_DIR=/root/.botkit-backup
-BACKUP_HOST=31.76.11.198
-TEXTFILE=/var/lib/node-exporter-textfile/botkit_backup.prom
+PW_DIR=${PW_DIR:-/root/.botkit-backup}
+BACKUP_HOST=${BACKUP_HOST:-31.76.11.198}
+TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_backup.prom}
 ALERTMANAGER_URL=${ALERTMANAGER_URL:-http://127.0.0.1:9093}
 MAXAGE_DATA=28800
 MAXAGE_MONITOR=36000
@@ -30,10 +30,15 @@ for stream in data monitor; do
   last=""
   for _ in $(seq 1 $RETRIES); do
     last=$(RESTIC_PASSWORD_FILE="$pw" restic -r "${REPO[$stream]}" snapshots --json --latest 1 2>/dev/null \
-      | python3 -c 'import json,sys
+      | python3 -c 'import json,sys,datetime
+def _t(x):
+    try:
+        return datetime.datetime.fromisoformat(x["time"].replace("Z","+00:00"))
+    except Exception:
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
 try:
     d=json.load(sys.stdin)
-    print(d[0]["time"] if d else "")
+    print(max(d, key=_t)["time"] if d else "")
 except Exception:
     print("")' 2>/dev/null)
     [ -n "$last" ] && break

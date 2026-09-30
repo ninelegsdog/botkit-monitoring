@@ -72,6 +72,12 @@ jobs:
       - name: shell syntax
         run: |
           find ops -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: backup freshness parser
+        # The parser picks which restic snapshot decides the backup's age. Picking the
+        # wrong one flipped a healthy offsite backup to "stale" and fired false alerts
+        # on 2026-09-28; the test feeds a multi-entry JSON and fails on the old d[0] logic.
+        run: |
+          bash ops/backup/restic-check-test.sh
       # systemd-analyze verify was tried here and dropped: on any real machine it also
       # resolves the host's own units and reports every ExecStart path as missing, so it
       # is always red and trains people to ignore it. The directives that actually broke
