@@ -127,6 +127,14 @@ scrape_configs:
       - target_label: __address__
         replacement: 127.0.0.1:9115
 
+  # Метрики самого Tempo. Job tempo-ready выше проверяет только /ready через blackbox,
+  # поэтому память процесса Tempo ничем не наблюдалась: при упоре в свой cgroup-лимит
+  # 512 MiB контейнер убивал бы OOM-киллер, а HostMemHigh этого не видит — на хосте
+  # памяти ещё plenty, упирается только контейнер.
+  - job_name: tempo
+    static_configs:
+      - targets: ["127.0.0.1:3200"]
+
   - job_name: node
     static_configs:
       - targets: ["127.0.0.1:9100"]

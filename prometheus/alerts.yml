@@ -195,6 +195,38 @@ groups:
           summary: "Load1 {{ $value }} на хосте"
           description: "Load average 1m превысил 6 в течение 15m"
 
+      # RSS процесса Tempo как опережающий индикатор cgroup-лимита (512 MiB).
+      # Это НЕ точное условие OOM: в счёт памяти cgroup входит и page cache, а
+      # process_resident_memory_bytes его не показывает. Порог взят с запасом от
+      # наблюдаемого простоя (~160 MiB), поэтому алерт срабатывает заранее.
+      - alert: TempoMemoryHigh
+        expr: process_resident_memory_bytes{job="tempo"} > 400 * 1024 * 1024
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RSS Tempo {{ $value | humanize1024 }} при лимите 512 MiB"
+          description: "RSS процесса Tempo держится выше 400 MiB 15 минут. Контейнер упрётся в cgroup-лимит 512 MiB и будет убит OOM-киллером, а HostMemHigh этого не заметит — на хосте память ещё свободна. Проверить: docker stats botkit-monitoring-tempo-1; в логах искать compaction и discarded_spans_total{reason=...} — при нехватке памяти Tempo отбрасывает спаны."
+      - alert: TempoMemoryCritical
+        expr: process_resident_memory_bytes{job="tempo"} > 480 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RSS Tempo {{ $value | humanize1024 }} — почти cgroup-лимит 512 MiB"
+          description: "RSS процесса Tempo выше 480 MiB: до OOM-киллера осталось мало, compactor встанет, часть спанов потеряется безвозвратно. Действовать сразу — docker restart botkit-monitoring-tempo-1."
+      # Не дублировать TempoDown: этот алерт только про случай «Tempo жив и /ready
+      # отвечает, но метрики не приходят» (ошибка job tempo). При реальном падении
+      # Tempo срабатывает TempoDown, и второй алерт молчал бы впустую.
+      - alert: TempoMetricsMissing
+        expr: absent(process_resident_memory_bytes{job="tempo"}) and on() (probe_success{job="tempo-ready"} == 1)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Метрики Tempo не поступают"
+          description: "Tempo отвечает на /ready, но process_resident_memory_bytes от job tempo не поступает 15 минут — job tempo не скарпит 127.0.0.1:3200. Без этого упор в память никто не заметит."
+
       - alert: HostUnreachable
         expr: up{job="node"} == 0
         for: 3m
