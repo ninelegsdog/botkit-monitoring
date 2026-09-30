@@ -90,7 +90,14 @@ for d in "$BASE"/botkit-*/; do
     mark_fail "$bot"
     echo "$bot: sqlite=$bdb_ok redis=$REDIS_OK -> FAIL"
   fi
-  ls -1t "$d/backups"/bot.db.* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+  ls -1t "$d"/backups/bot.db.* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
+  # Легаси, о которых скрипт забыл. redis стал общим 02.09.2026 (botkit-shared-redis),
+  # а staging переехал в /var/lib/botkit-restic-stage 10.09.2026. С тех пор в backups
+  # каждого бота копятся redis.rdb.* и export.*.db, которые никто не пишет и никто
+  # не удаляет: ротация выше трогает только bot.db.*. Плюс restic увозит их в
+  # offsite-снапшоты, где они лежат рядом с каноническим общим дампом и мешают понять,
+  # какой из них актуален. Удаляем здесь, чтобы не копились.
+  find "$d/backups" -maxdepth 1 -type f \( -name "redis.rdb.*" -o -name "export.*.db" \) -delete 2>/dev/null || true
 done
 
 exit $FAIL
