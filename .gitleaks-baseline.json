@@ -1,0 +1,23 @@
+[
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 28,
+  "EndLine": 28,
+  "StartColumn": 2,
+  "EndColumn": 45,
+  "Match": "TG_API_HASH=REDACTED",
+  "Secret": "REDACTED",
+  "File": "ops/e2e/SETUP_GUIDE.md",
+  "SymlinkFile": "",
+  "Commit": "300398480192284228a09d90fa76766068e8b6ed",
+  "Link": "https://github.com/ninelegsdog/botkit-monitoring/blob/300398480192284228a09d90fa76766068e8b6ed/ops/e2e/SETUP_GUIDE.md?plain=1#L28",
+  "Entropy": 4,
+  "Author": "ninelegsdog",
+  "Email": "ninelegsdog@gmail.com",
+  "Date": "2026-08-30T00:54:43Z",
+  "Message": "feat(e2e): add Telegram E2E bot monitoring package\n\nScaffold botkit-e2e: config loader, telethon userbot client, per-bot\nscenarios, orchestrator with status files + Alertmanager alerting, live\npytest wrapper, systemd timer and CI workflow. Tasks 1-6 (no creds).\nTask 7 (prod run) blocked pending userbot credentials.\n\nCo-Authored-By: opencode \u003cnoreply@opencode.ai\u003e",
+  "Tags": [],
+  "Fingerprint": "300398480192284228a09d90fa76766068e8b6ed:ops/e2e/SETUP_GUIDE.md:generic-api-key:28"
+ }
+]
