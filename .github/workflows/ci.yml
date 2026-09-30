@@ -87,6 +87,10 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    env:
+      # Pinned like the prometheus image above: a scanner that changes its rule set
+      # under a floating reference would turn this gate green for the wrong reason.
+      GITLEAKS_VERSION: 8.30.1
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.0.0
         with:
@@ -94,11 +98,21 @@ jobs:
           # commit rather than the single one being built.
           fetch-depth: 0
       - name: gitleaks
-        # Pinned the way the prometheus image below is: a scanner that changes its rule
-        # set under a floating tag would turn this gate green for the wrong reason.
         # Everything else here validates that the repository is well-formed; nothing
         # here would notice a bot token pushed alongside a compose file, and this
         # remote is public.
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo \
-            ghcr.io/gitleaks/gitleaks:v8.30.1 git --no-banner --redact
+          # Run the pinned binary on the runner rather than in a container. Two failures
+          # argued for this: bind-mounting the checkout made git reject the repository as
+          # dubious ownership, after which gitleaks scanned zero commits and printed "no
+          # leaks found" with exit 0 - a green gate that inspected nothing. Then the image
+          # pull failed on the runner while the identical scan passed locally. The runner
+          # owns its own workspace, so this form has no ownership question to get wrong.
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks version
+          # --verbose so a future red run says which rule and which commit, not just "leaks
+          # found" - the same reason this job refuses to report success without evidence.
+          /tmp/gitleaks git --no-banner --redact --verbose \
+            --baseline-path .gitleaks-baseline.json
