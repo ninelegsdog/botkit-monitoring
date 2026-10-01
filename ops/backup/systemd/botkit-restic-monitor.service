@@ -5,6 +5,10 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
+# restic берёт каталог кэша из $HOME/$XDG_CACHE_HOME. Юниты выполняются как root
+# без Environment= и без HOME в окружении, поэтому каждый запуск печатал
+# "unable to open cache: neither $XDG_CACHE_HOME nor $HOME are defined".
+Environment=HOME=/root
 ExecStart=/usr/local/sbin/botkit-restic-backup monitor
 Nice=10
 IOSchedulingClass=idle
