@@ -1,40 +1,81 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-import requests
 from telethon import TelegramClient
+from telethon.errors import SessionPasswordNeededError
 
 if TYPE_CHECKING:
     from e2e.config import Settings
 
-API = "https://api.telegram.org/bot{token}/getMe"
-
-
-def bot_getme(token: str) -> dict:
-    r = requests.get(API.format(token=token), timeout=10)
-    r.raise_for_status()
-    return r.json()["result"]
-
 
 class TelegramTester:
-    def __init__(self, settings: Settings):
-        self.settings = settings
-        self.client = TelegramClient(settings.session_file, settings.api_id, settings.api_hash)
+    """Drives the fleet as a user account.
 
-    async def __aenter__(self):
-        await self.client.start(phone=self.settings.phone)
+    Authentication is explicit and checked: `connect()` alone says nothing about
+    whether the session is usable, and an unauthorized session would sit in
+    `run_scenario` until the first timeout instead of failing at the reason.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.client = TelegramClient(
+            str(settings.session_path),
+            settings.api_id,
+            settings.api_hash,
+            device_model=settings.device_model,
+            system_version=settings.system_version,
+            app_version=settings.app_version,
+        )
+        self._usernames: dict[str, str] = {}
+
+    async def __aenter__(self) -> TelegramTester:
+        await self.connect()
         return self
 
-    async def __aexit__(self, *a):
+    async def __aexit__(self, *_a: object) -> None:
+        await self.disconnect()
+
+    async def connect(self) -> None:
+        """Connect and refuse to continue on an unusable session.
+
+        A missing phone is only acceptable for an already-authorized session;
+        that is what lets the E2E host run without keeping TG_PHONE.
+        """
+        await self.client.connect()
+        if await self.client.is_user_authorized():
+            return
+        if not self.settings.phone:
+            msg = (
+                f"session {self.settings.session_path} is not authorized and no phone is "
+                "configured; run first_login.py on an admin machine instead of storing TG_PHONE here"
+            )
+            raise RuntimeError(msg)
+        try:
+            await self.client.send_code_request(self.settings.phone)
+        except SessionPasswordNeededError as exc:  # pragma: no cover - depends on account 2FA
+            msg = "account requires 2FA; complete sign-in manually with first_login.py"
+            raise RuntimeError(msg) from exc
+        await self.client.sign_in(phone=self.settings.phone, code=lambda: input("Telegram code: "))
+        if not await self.client.is_user_authorized():
+            msg = "sign-in completed without producing an authorized session"
+            raise RuntimeError(msg)
+
+    async def disconnect(self) -> None:
         await self.client.disconnect()
 
-    @staticmethod
-    def get_bot_username(token: str) -> str:
-        return bot_getme(token)["username"]
+    def prime_usernames(self, mapping: dict[str, str]) -> None:
+        """Cache bot directory name -> username for the duration of the run."""
+        self._usernames = dict(mapping)
 
-    async def run_scenario(self, username, steps, timeout) -> list[str]:
+    def username_for(self, bot: str) -> str:
+        if bot not in self._usernames:
+            msg = f"no username known for {bot}; bots.yml must be loaded before the run"
+            raise RuntimeError(msg)
+        return self._usernames[bot]
+
+    async def run_scenario(self, username: str, steps: list[Any], timeout: int) -> list[str]:
         out: list[str] = []
         for st in steps:
             top = await self.client.get_messages(username, limit=1)
@@ -44,7 +85,7 @@ class TelegramTester:
             out.append(reply)
         return out
 
-    async def _wait_reply(self, username, timeout, after_id):
+    async def _wait_reply(self, username: str, timeout: int, after_id: int) -> tuple[str, int]:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while loop.time() < deadline:
@@ -54,4 +95,5 @@ class TelegramTester:
                 if not m.out and m.text:
                     return m.text, m.id
             await asyncio.sleep(1.5)
-        raise TimeoutError(f"no fresh reply from {username}")
+        msg = f"no fresh reply from {username}"
+        raise TimeoutError(msg)

@@ -1,8 +1,13 @@
 [Unit]
-Description=Botkit E2E every 15 min
+Description=Botkit E2E every 6 hours
 
 [Timer]
-OnCalendar=*:0/15
+# Strategy B: one message per bot per run, so a 6h cadence keeps the account
+# volume at 36 messages a day. RandomizedDelaySec keeps nine runs from looking
+# like a machine. Strategy C (a disposable account) and D (alert proof without
+# Telegram) are owner decisions and do not change this file.
+OnCalendar=*-*-* 00/6:17
+RandomizedDelaySec=30m
 Persistent=true
 
 [Install]
