@@ -118,9 +118,9 @@ run_stream() {
     # --retry-lock: если предыдущий запуск убили и остался stale-lock, forget падал
     # с кодом 11, retention не отрабатывал, и снапшоты копились без границы. Молча
     # ждать безопаснее, чем завершаться: реальный конкурент всё равно держит lock.
-    RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" forget --retry-lock 600 --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune
+    RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" forget --retry-lock 10m --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune
   else
-    RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" forget --retry-lock 600 --keep-daily 3 --keep-weekly 2 --prune
+    RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" forget --retry-lock 10m --keep-daily 3 --keep-weekly 2 --prune
   fi
   if [ "$stream" = data ]; then
     write_run_metric "$consistent_failures"
