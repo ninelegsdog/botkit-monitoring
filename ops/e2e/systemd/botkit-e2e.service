@@ -18,7 +18,12 @@ ExecStart=/opt/botkit-e2e/venv/bin/python -m e2e.run_e2e
 # The session is an account credential, so the runner may write nothing else.
 # Status markers are its only other output.
 ReadWritePaths=/var/lib/botkit-e2e/session /var/lib/botkit-e2e/status
-InaccessiblePaths=/home /root /srv /etc/botkit
+# The "-" prefix means "skip this path if it does not exist", and it is not
+# optional decoration. Without it systemd refuses to start the unit whenever a
+# listed path is missing: /etc/botkit does not exist on the E2E host, so the
+# unit failed with exit 226 and the run never happened. Found by a live
+# sandbox check, not by reading the file - see scripts/sandbox-check.sh.
+InaccessiblePaths=-/home -/root -/srv -/etc/botkit
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
