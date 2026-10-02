@@ -56,16 +56,16 @@ SANDBOX=(
 UNIT="${1:-/opt/botkit-e2e/ops/e2e/systemd/botkit-e2e.service}"
 
 echo "== POSITIVE CONTROL: the sandbox must be able to run anything at all =="
-if ! systemd-run --wait --quiet --pipe "${SANDBOX[@]}" /usr/bin/id >/dev/null 2>&1; then
+if ! systemd-run --wait --quiet --collect --pipe "${SANDBOX[@]}" /usr/bin/id >/dev/null 2>&1; then
   echo "  FAIL  sandboxed systemd-run does not work; every result below would be meaningless"
   systemd-run --wait --pipe "${SANDBOX[@]}" /usr/bin/id 2>&1 | grep -iE "not an assignment|unknown|failed" | head -3
   echo "SANDBOX_FAIL"; exit 1
 fi
-ok "sandboxed run executes /usr/bin/id" "$(systemd-run --wait --quiet --pipe "${SANDBOX[@]}" /usr/bin/id 2>/dev/null | head -1)"
+ok "sandboxed run executes /usr/bin/id" "$(systemd-run --wait --quiet --collect --pipe "${SANDBOX[@]}" /usr/bin/id 2>/dev/null | head -1)"
 ok "sandboxed run reads its own package" "ALLOW"
-check "sandboxed run reads its own package"  ALLOW systemd-run --wait --quiet --pipe "${SANDBOX[@]}" /usr/bin/test -r /opt/botkit-e2e/ops/e2e/e2e/config.py
-check "sandboxed run writes the session dir"  ALLOW systemd-run --wait --quiet --pipe "${SANDBOX[@]}" /usr/bin/test -w /var/lib/botkit-e2e/session
-check "sandboxed run writes the status dir"   ALLOW systemd-run --wait --quiet --pipe "${SANDBOX[@]}" /usr/bin/test -w /var/lib/botkit-e2e/status
+check "sandboxed run reads its own package"  ALLOW systemd-run --wait --quiet --collect --pipe "${SANDBOX[@]}" /usr/bin/test -r /opt/botkit-e2e/ops/e2e/e2e/config.py
+check "sandboxed run writes the session dir"  ALLOW systemd-run --wait --quiet --collect --pipe "${SANDBOX[@]}" /usr/bin/test -w /var/lib/botkit-e2e/session
+check "sandboxed run writes the status dir"   ALLOW systemd-run --wait --quiet --collect --pipe "${SANDBOX[@]}" /usr/bin/test -w /var/lib/botkit-e2e/status
 
 echo "== §E2 condition 1: session outside \$HOME =="
 check "no home dir for botkit-e2e"             DENY  test -e /home/botkit-e2e
@@ -73,14 +73,14 @@ check "no session dir under \$HOME"            DENY  test -d /home/algtro/botkit
 
 echo "== §E2 condition 2: InaccessiblePaths, verified INSIDE the sandbox =="
 for p in /home/algtro/BOTOGRAD_TECH /home/algtro/.ssh /root /srv /etc/botkit; do
-  check "cannot read $p"                      DENY systemd-run --wait --quiet --pipe \
+  check "cannot read $p"                      DENY systemd-run --wait --quiet --collect --pipe \
       "${SANDBOX[@]}" /usr/bin/test -r "$p"
-  check "cannot list $p"                      DENY systemd-run --wait --quiet --pipe \
+  check "cannot list $p"                      DENY systemd-run --wait --quiet --collect --pipe \
       "${SANDBOX[@]}" /usr/bin/ls "$p"
 done
-check "cannot write into the clone"           DENY systemd-run --wait --quiet --pipe \
+check "cannot write into the clone"           DENY systemd-run --wait --quiet --collect --pipe \
     "${SANDBOX[@]}" /usr/bin/test -w /opt/botkit-e2e
-check "cannot read the fleet bot .env"        DENY systemd-run --wait --quiet --pipe \
+check "cannot read the fleet bot .env"        DENY systemd-run --wait --quiet --collect --pipe \
     "${SANDBOX[@]}" /usr/bin/test -r /opt/botkit-e2e/.env
 
 echo "== §E2 condition 4: no escalation, no shell =="
@@ -100,6 +100,24 @@ for d in "InaccessiblePaths=-/home -/root -/srv -/etc/botkit" "ProtectSystem=str
   if grep -qxF "$d" "$UNIT"; then ok "$d" "present"; else bad "$d" "MISSING"; fi
 done
 if grep -qE "^ExecStart=.*/root/" "$UNIT"; then bad "ExecStart does not point at /root" "found"; else ok "ExecStart avoids /root" "ok"; fi
+
+# Every DENY probe above exits non-zero by design, and each leaves a transient
+# unit behind in the failed state. Sixty-odd accumulated and made
+# `systemctl --failed` unreadable on this host - which is precisely how a real
+# failure would have gone unnoticed. Probes are now collected as they finish, and
+# anything still lingering is reset on exit.
+cleanup_probes() {
+  local lingering
+  lingering=$(systemctl list-units --state=failed --no-legend --no-pager --plain 2>/dev/null \
+    | awk '{print $1}' | grep -c '^run-u' || true)
+  if [ "${lingering:-0}" -gt 0 ]; then
+    systemctl list-units --state=failed --no-legend --no-pager --plain 2>/dev/null \
+      | awk '{print $1}' | grep '^run-u' \
+      | while read -r unit; do systemctl reset-failed "$unit" 2>/dev/null; done
+    echo "cleaned $lingering transient probe unit(s) out of the failed state"
+  fi
+}
+trap cleanup_probes EXIT
 
 echo
 echo "passed=$pass failed=$fail"
