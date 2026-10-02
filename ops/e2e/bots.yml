@@ -1,18 +1,22 @@
-# Telegram usernames of the nine production bots, resolved once on a machine that
-# can read bot tokens (tools/resolve_bots.py) and committed here.
+# Telegram usernames of the nine production bots, resolved once on the machine
+# that can read the bot tokens and committed here.
 #
-# The E2E runner never reads a bot token. That is the point of this file: a
-# test host that can log in as a user should not also be able to impersonate
-# any of the nine bots.
+# The E2E runner reads usernames only and therefore cannot impersonate any of the
+# nine bots. That is the point of this file: a test host that logs in as a user
+# must not also be able to act as the bots it tests. The gate is
+# tests/test_no_token_reads.py, which denies the removed token helpers by name,
+# denies `requests`, denies credential literals, and fails if this file or
+# scenarios.yml does not cover exactly the nine bots.
 #
-# Regenerate with tools/resolve_bots.py on the admin machine, then delete the
-# generator: it is a one-shot tool, not a runtime dependency.
-botkit-bookingbot: ""
-botkit-delivery: ""
-botkit-docuflow: ""
-botkit-leadgen: ""
-botkit-membership: ""
-botkit-pricesentry: ""
-botkit-reminder: ""
-botkit-store: ""
-botkit-support: ""
+# Resolved with tools/resolve_bots.py (one-shot, deleted after use - it is the
+# only code that ever reads a bot token to produce this file). Values are quoted:
+# a bare @ is a YAML reserved indicator and would make the file a parse error.
+botkit-bookingbot: "SaasBookingKitBot"
+botkit-delivery: "DeliveryKitBot"
+botkit-docuflow: "DocuflowKitBot"
+botkit-leadgen: "LeadgenKitBot"
+botkit-membership: "MembershipKitBot"
+botkit-pricesentry: "PricesentryKitBot"
+botkit-reminder: "ReminderKitBot"
+botkit-store: "StoreKitBot"
+botkit-support: "SaasSupportKitBot"
