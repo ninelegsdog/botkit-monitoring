@@ -88,7 +88,23 @@ class TelegramTester:
         A missing phone is only acceptable for an already-authorized session;
         that is what lets the E2E host run without keeping TG_PHONE.
         """
-        await self.client.connect()
+        try:
+            await self.client.connect()
+        except ConnectionError as exc:
+            # Telethon raises the same ConnectionError for "Telegram blocked our
+            # egress" and "our proxy is down". Those need opposite responses -
+            # one is unfixable from here, the other is a dead systemd unit - and
+            # the bare message tells an operator neither.
+            if self.settings.proxy:
+                msg = (
+                    f"cannot reach Telegram through {self.settings.proxy}: {exc}. "
+                    "If the listener is absent, the tunnel unit is down: "
+                    "systemctl status botkit-e2e-tunnel. A direct connection "
+                    "from this host is blocked by Telegram, so the proxy is not optional."
+                )
+            else:
+                msg = f"cannot reach Telegram directly: {exc}"
+            raise RuntimeError(msg) from exc
         if await self.client.is_user_authorized():
             return
         if not self.settings.phone:

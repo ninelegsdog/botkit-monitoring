@@ -57,8 +57,11 @@ class _FakeClient:
         self.disconnected = False
         self.sign_in_calls: list[dict] = []
         self.code_requested = None
+        self.connect_error: Exception | None = None
 
     async def connect(self):
+        if self.connect_error is not None:
+            raise self.connect_error
         self.connected = True
 
     async def is_user_authorized(self):
@@ -103,6 +106,33 @@ def test_connect_raises_when_unauthorized_and_no_phone():
     with pytest.raises(RuntimeError, match="not authorized"):
         asyncio.run(t.connect())
     assert client.sign_in_calls == []
+
+
+def test_connection_failure_names_the_tunnel(monkeypatch):
+    """A dead tunnel and a blocked egress produce the same Telethon ConnectionError.
+
+    Found by stopping the tunnel on the live host: the runner said only
+    "Connection to Telegram failed 5 time(s)", which is exactly what the blocked
+    IP produced before the tunnel existed. The operator cannot tell a dead
+    systemd unit from an unfixable network fact.
+    """
+    client = _FakeClient(authorized=False)
+    client.connect_error = ConnectionError("Connection to Telegram failed 5 time(s)")
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", proxy="socks5:127.0.0.1:11080")
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(t.connect())
+    message = str(excinfo.value)
+    assert "socks5:127.0.0.1:11080" in message
+    assert "botkit-e2e-tunnel" in message
+
+
+def test_connection_failure_without_proxy_names_the_real_fact():
+    client = _FakeClient(authorized=False)
+    client.connect_error = ConnectionError("Connection to Telegram failed 5 time(s)")
+    t = _tester_with(client)
+    with pytest.raises(RuntimeError, match="directly"):
+        asyncio.run(t.connect())
 
 
 def test_connect_signs_in_when_phone_present():
