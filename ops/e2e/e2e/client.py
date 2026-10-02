@@ -9,6 +9,30 @@ from telethon.errors import SessionPasswordNeededError
 if TYPE_CHECKING:
     from e2e.config import Settings
 
+try:  # Telethon needs PySocks for a SOCKS proxy; hosts without one skip it.
+    import socks  # noqa: F401
+
+    _SOCKS_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - depends on the venv
+    _SOCKS_AVAILABLE = False
+
+
+def _proxy_tuple(spec: str) -> tuple[str, str, int] | None:
+    """Translate "socks5h:127.0.0.1:11080" into telethon's (type, host, port).
+
+    None for an empty spec, so connecting directly stays the default. A malformed
+    spec raises here rather than falling back to a direct connection: a typo in the
+    proxy setting must not silently produce an attempt that cannot work.
+    """
+    if not spec:
+        return None
+    kind, _, rest = spec.partition(":")
+    host, _, port = rest.partition(":")
+    if kind not in {"socks5", "socks5h"} or not host or not port.isdigit():
+        msg = f"E2E_PROXY must look like socks5h:host:port, got {spec!r}"
+        raise ValueError(msg)
+    return kind, host, int(port)
+
 
 class TelegramTester:
     """Drives the fleet as a user account.
@@ -20,6 +44,13 @@ class TelegramTester:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        proxy = _proxy_tuple(settings.proxy)
+        if proxy is not None and not _SOCKS_AVAILABLE:
+            # Telethon speaks SOCKS only through PySocks. Checked here so the
+            # failure names the missing package instead of arriving much later
+            # as a connect timeout against the proxy port.
+            msg = "E2E_PROXY is set but PySocks is missing from the venv"
+            raise RuntimeError(msg)
         self.client = TelegramClient(
             str(settings.session_path),
             settings.api_id,
@@ -27,6 +58,7 @@ class TelegramTester:
             device_model=settings.device_model,
             system_version=settings.system_version,
             app_version=settings.app_version,
+            proxy=proxy,
         )
         self._usernames: dict[str, str] = {}
 

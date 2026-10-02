@@ -4,5 +4,8 @@
 telethon==1.45.0
 PyYAML==6.0.3
 pytest==9.0.1
+# PySocks is required when E2E_PROXY is set: telethon speaks SOCKS only through
+# it. Not imported at module level, so a host with no proxy does not need it.
+PySocks==1.7.1
 # requests was here to call getMe with a bot token and to POST alerts. The
 # runner no longer reads tokens, and the alert POST moved to stdlib urllib.

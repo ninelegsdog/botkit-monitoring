@@ -31,6 +31,10 @@ class Settings:
     device_model: str = "botkit-e2e"
     system_version: str = "Linux"
     app_version: str = "botkit-e2e/1.0"
+    # "socks5:host:port" or "socks5h:host:port"; empty means connect directly.
+    # The E2E host egress is blackholed by Telegram (see the ADR note on the
+    # proxy), so the runner reaches the DC through a loopback SOCKS proxy.
+    proxy: str = ""
 
     def __post_init__(self) -> None:
         # Paths are coerced here rather than trusted at every use site: a session
@@ -79,6 +83,7 @@ def load_settings() -> Settings:
         session_name=os.environ.get("E2E_SESSION_NAME", "botkit-e2e"),
         scenarios_file=os.environ.get("E2E_SCENARIOS", "scenarios.yml"),
         alert_url=os.environ.get("E2E_ALERT_URL", ""),
+        proxy=os.environ.get("E2E_PROXY", ""),
         timeout=_int_env("E2E_TIMEOUT", 30),
         device_model=os.environ.get("E2E_DEVICE_MODEL", "botkit-e2e"),
         system_version=os.environ.get("E2E_SYSTEM_VERSION", "Linux"),

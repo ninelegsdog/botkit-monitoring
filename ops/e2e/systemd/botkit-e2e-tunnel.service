@@ -1,0 +1,56 @@
+[Unit]
+Description=SOCKS5 tunnel from the E2E host to Telegram via the monitor
+# Telegram blackholes TCP from this host's public IP: ICMP answers in ~40 ms,
+# port 443 never completes. The monitor's egress is not blocked. The runner
+# reaches the DC through 127.0.0.1:11080 and opts in with E2E_PROXY, so nothing
+# else on this host changes its route.
+#
+# Why the monitor and not a WireGuard peer: the ADR records "amnezia-awg2 is not
+# to be touched", and adding a peer means editing that config on the host that
+# holds the offsite backup secrets. This changes nothing outside this machine.
+Documentation=file:///var/lib/botkit-e2e-tunnel/README.md
+# systemd wants these in [Unit]; in [Service] they are silently ignored.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Forwarding only. The key on the monitor carries
+# command="/usr/sbin/nologin",restrict,port-forwarding, so it cannot open a
+# session; `restrict` alone does not forbid command execution, which was
+# verified the hard way before the forced command was added.
+User=botkit-e2e-tunnel
+Group=botkit-e2e-tunnel
+ExecStart=/usr/bin/ssh -F /var/lib/botkit-e2e-tunnel/ssh_config -N -D 127.0.0.1:11080 tunnel-monitor
+Restart=always
+RestartSec=10
+# A dead tunnel means the E2E run cannot reach Telegram, so the limit is what
+# turns "quietly broken forever" into a failed unit.
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+# The proxy listens on loopback and may only speak to the tunnel target.
+# IPAddressAllow=localhost alone is not enough and breaks the unit: the BPF hook
+# also filters connect(), so the ssh process never reaches the monitor and,
+# because ssh -D binds its listener only after connecting, no port appears at
+# all. Verified by removing the directives and watching the port come up.
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost 31.76.11.198
+
+[Install]
+WantedBy=multi-user.target
