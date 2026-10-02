@@ -28,8 +28,12 @@ def _proxy_tuple(spec: str) -> tuple[str, str, int] | None:
         return None
     kind, _, rest = spec.partition(":")
     host, _, port = rest.partition(":")
-    if kind not in {"socks5", "socks5h"} or not host or not port.isdigit():
-        msg = f"E2E_PROXY must look like socks5h:host:port, got {spec!r}"
+    # Only what telethon actually accepts. "socks5h" is a curl convention meaning
+    # resolve-remotely; telethon has no such protocol and raises
+    # "Unknown proxy protocol type" deep inside the connect path, which reads as
+    # a network problem rather than a setting mistake.
+    if kind != "socks5" or not host or not port.isdigit():
+        msg = f"E2E_PROXY must look like socks5:host:port (telethon speaks only socks5), got {spec!r}"
         raise ValueError(msg)
     return kind, host, int(port)
 
