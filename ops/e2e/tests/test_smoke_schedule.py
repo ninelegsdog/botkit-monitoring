@@ -8,6 +8,7 @@ contract: it must execute the synced canon, and a failing sink must be loud.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -68,8 +69,16 @@ def test_script_syntax_is_valid():
     assert result.returncode == 0, f"smoke_all.sh does not parse: {result.stderr}"
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions, so the premise cannot hold")
 def test_unwritable_log_is_fatal_instead_of_a_silent_pass(tmp_path):
-    """Regression: as `deploy` the script logged to /var/log, failed, and still said PASS."""
+    """Regression: as `deploy` the script logged to /var/log, failed, and still said PASS.
+
+    Skipped for root explicitly. The old guard only skipped when the subprocess
+    happened to exit 0; as root it exits 1 instead - the run proceeds, the log is
+    writable, and the smoke fails later for an unrelated reason - so the guard let
+    a meaningless assertion through. CI runs unprivileged and never saw it; an
+    operator running pytest under sudo would.
+    """
     readonly = tmp_path / "readonly"
     readonly.mkdir()
     readonly.chmod(0o500)
