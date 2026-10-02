@@ -1,33 +1,40 @@
 from __future__ import annotations
 
 import asyncio
-import pathlib
+import json
 import sys
 import time
-
-import requests
+import urllib.error
+import urllib.request
 
 from e2e.client import TelegramTester
-from e2e.config import Settings, load_scenarios, load_settings
+from e2e.config import Settings, load_bots, load_scenarios, load_settings
 
-AM_URL = "http://localhost:9093/api/v2/alerts"
-THROTTLE_S = 3600  # не чаще 1 алерта на бота за 1ч (E2)
-
-
-def token_for(bot: str, bots_dir: pathlib.Path) -> str:
-    p = bots_dir / f"{bot}/.env"
-    for line in p.read_text().splitlines():
-        if line.startswith("TELEGRAM_BOT_TOKEN="):
-            return line.split("=", 1)[1].strip()
-    raise RuntimeError(f"no TELEGRAM_BOT_TOKEN in {p}")
+ALERT_THROTTLE_S = 3600  # не чаще 1 алерта на бота за 1ч
+ALERT_DESCRIPTION_LIMIT = 200
+HTTP_OK = 200
+HTTP_MULTI_STATUS = 300
 
 
-def send_alert(bot: str, reason: str, status_dir: pathlib.Path) -> bool:
-    last = status_dir / f".alerted.{bot}"
-    now = time.time()
-    if last.exists() and now - last.stat().st_mtime < THROTTLE_S:
-        return False
-    payload = [
+def post_alert(url: str, payload: list[dict], timeout: int = 5) -> bool:
+    """POST to Alertmanager. Returns False instead of raising.
+
+    A failed alert must not mask the test result that triggered it, so the
+    reason is reported and the caller keeps going.
+    """
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return HTTP_OK <= resp.status < HTTP_MULTI_STATUS
+
+
+def build_alert(bot: str, reason: str) -> list[dict]:
+    return [
         {
             "labels": {
                 "alertname": "E2ETestFailed",
@@ -35,42 +42,56 @@ def send_alert(bot: str, reason: str, status_dir: pathlib.Path) -> bool:
                 "bot": bot,
                 "service": "botkit-e2e",
             },
-            "annotations": {"summary": f"E2E fail {bot}", "description": reason[:200]},
+            "annotations": {"summary": f"E2E fail {bot}", "description": reason[:ALERT_DESCRIPTION_LIMIT]},
         }
     ]
+
+
+def send_alert(settings: Settings, bot: str, reason: str) -> bool:
+    """Send a throttled failure alert. An unconfigured URL is a loud no-op, not a silent success."""
+    if not settings.alert_url:
+        print(f"FATAL no E2E_ALERT_URL configured; cannot alert on {bot} failure (fail-loud)")
+        return False
+    last = settings.status_dir / f".alerted.{bot}"
+    now = time.time()
+    if last.exists() and now - last.stat().st_mtime < ALERT_THROTTLE_S:
+        return False
     try:
-        requests.post(AM_URL, json=payload, timeout=5)
-        last.write_text(str(now))
-        return True
-    except Exception as exc:
+        ok = post_alert(settings.alert_url, build_alert(bot, reason))
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
         print(f"WARN alert send failed: {exc}")
         return False
+    if ok:
+        last.write_text(str(now))
+    return ok
 
 
-async def run_all(scenarios, settings: Settings, status_dir: pathlib.Path) -> int:
-    status_dir.mkdir(parents=True, exist_ok=True)
+async def run_all(scenarios, settings: Settings) -> int:
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    bots = load_bots(settings.bots_file)
     problems = 0
     async with TelegramTester(settings) as t:
+        t.prime_usernames(bots)
         for bot, sc in scenarios.items():
             err = ""
             try:
-                username = t.get_bot_username(token_for(bot, settings.bots_dir))
+                username = t.username_for(bot)
                 replies = await t.run_scenario(username, sc.steps, settings.timeout)
                 expected = [s.expect for s in sc.steps]
                 matched = all(exp in rep for exp, rep in zip(expected, replies, strict=False))
                 ok = len(replies) == len(expected) and matched
-            except Exception as e:
+            except Exception as e:  # a per-bot failure must not abort the fleet
                 ok = False
                 err = str(e)
             if ok:
-                (status_dir / f"{bot}.ok").write_text("ok")
-                (status_dir / f"{bot}.fail").unlink(missing_ok=True)
-                (status_dir / f".alerted.{bot}").unlink(missing_ok=True)
+                (settings.status_dir / f"{bot}.ok").write_text("ok")
+                (settings.status_dir / f"{bot}.fail").unlink(missing_ok=True)
+                (settings.status_dir / f".alerted.{bot}").unlink(missing_ok=True)
                 print(f"OK {bot}")
             else:
-                (status_dir / f"{bot}.fail").write_text("fail")
-                (status_dir / f"{bot}.ok").unlink(missing_ok=True)
-                sent = send_alert(bot, err or "unexpected reply", status_dir)
+                (settings.status_dir / f"{bot}.fail").write_text("fail")
+                (settings.status_dir / f"{bot}.ok").unlink(missing_ok=True)
+                sent = send_alert(settings, bot, err or "unexpected reply")
                 print(f"FAIL {bot} ({err or 'unexpected reply'}) alert={sent}")
                 problems += 1
     return problems
@@ -79,7 +100,7 @@ async def run_all(scenarios, settings: Settings, status_dir: pathlib.Path) -> in
 def main() -> None:
     settings = load_settings()
     scenarios = load_scenarios(settings.scenarios_file)
-    problems = asyncio.run(run_all(scenarios, settings, settings.status_dir))
+    problems = asyncio.run(run_all(scenarios, settings))
     sys.exit(1 if problems else 0)
 
 

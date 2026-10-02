@@ -1,0 +1,18 @@
+# Telegram usernames of the nine production bots, resolved once on a machine that
+# can read bot tokens (tools/resolve_bots.py) and committed here.
+#
+# The E2E runner never reads a bot token. That is the point of this file: a
+# test host that can log in as a user should not also be able to impersonate
+# any of the nine bots.
+#
+# Regenerate with tools/resolve_bots.py on the admin machine, then delete the
+# generator: it is a one-shot tool, not a runtime dependency.
+botkit-bookingbot: ""
+botkit-delivery: ""
+botkit-docuflow: ""
+botkit-leadgen: ""
+botkit-membership: ""
+botkit-pricesentry: ""
+botkit-reminder: ""
+botkit-store: ""
+botkit-support: ""

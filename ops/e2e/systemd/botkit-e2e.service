@@ -1,8 +1,35 @@
 [Unit]
-Description=Botkit E2E Telegram smoke test
+Description=Botkit E2E Telegram smoke test (user account)
+Documentation=file:///opt/botkit-e2e/README.md
+# A user account can be banned; do not stack retries on top of the timer.
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/root/botkit-e2e/.env.e2e
-WorkingDirectory=/root/botkit-e2e
-ExecStart=/root/botkit-e2e/venv/bin/python -m e2e.run_e2e
+# Dedicated unprivileged user. Deliberately not in the docker group and with no
+# shell, so a compromised test run cannot reach the fleet or the deploy keys.
+User=botkit-e2e
+Group=botkit-e2e
+WorkingDirectory=/opt/botkit-e2e
+EnvironmentFile=/etc/botkit-e2e/e2e.env
+ExecStart=/opt/botkit-e2e/venv/bin/python -m e2e.run_e2e
+
+# The session is an account credential, so the runner may write nothing else.
+# Status markers are its only other output.
+ReadWritePaths=/var/lib/botkit-e2e/session /var/lib/botkit-e2e/status
+InaccessiblePaths=/home /root /srv /etc/botkit
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=

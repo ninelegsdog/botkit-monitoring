@@ -4,15 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "botkit-e2e"
-version = "0.1.0"
+version = "0.2.0"
 description = "End-to-end monitoring for botkit Telegram bots"
 requires-python = ">=3.10"
 dependencies = [
-    "telethon",
-    "pyyaml",
-    "requests",
-    "pytest",
+    "telethon==1.45.0",
+    "PyYAML==6.0.3",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest==9.0.1", "ruff==0.16.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -20,3 +21,6 @@ include = ["e2e*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "serial: live Telegram tests; they share one account and must not overlap",
+]

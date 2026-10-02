@@ -68,3 +68,31 @@ cd reverse-proxy
 cp .env.example .env   # DUCKDNS_TOKEN, CERTBOT_EMAIL
 docker compose up -d
 ```
+
+## E2E-раннер (`ops/e2e/`)
+Прогоняет девять ботов **с пользовательского аккаунта**, а не токеном бота.
+Индекс: `ops/e2e/PLAN.md`.
+
+Ключевое свойство: **раннер не умеет читать токены ботов.** Юзернеймы лежат в
+`ops/e2e/bots.yml` (решаются один раз через `tools/resolve_bots.py` на
+админской машине, потом генератор удаляется). Гейт на это —
+`tests/test_no_token_reads.py`: он запрещает и `import requests`, и любую функцию
+из denylist, и литерал credentials, и неполное покрытие флота.
+
+Авторизация проверяется явно: `connect()` бросает `RuntimeError`, если сессия не
+авторизована и нет телефона. Без этой проверки прогон доходил бы до первого
+сценария и там истёк по таймауту — неотличимо от «бот сломан».
+
+Юниты в `ops/e2e/systemd/` — это контракт, а не конфигурация: `User=botkit-e2e`
+без группы docker, `InaccessiblePaths=/home /root /srv /etc/botkit`,
+`ReadWritePaths` только на сессию и статусы, `ExecStart` на канон в
+`/opt/botkit-e2e`. Каждая директива закреплена в `tests/test_e2e_schedule.py` —
+по той же причине, что и `test_smoke_schedule.py`: `systemd-analyze verify` на
+живой машине всегда красный и учит игнорировать красное.
+
+Таймер: раз в 6 часов (1 сообщение на бота за прогон, 36 в сутки).
+
+Платёжные сценарии запрещены машинно — `tests/test_no_payment_scenarios.py`.
+
+Проверки: `ruff check .` + `PYTHONPATH=. pytest -q` в `ops/e2e`, плюс gitleaks
+по всей истории (`--baseline-path .gitleaks-baseline.json`).

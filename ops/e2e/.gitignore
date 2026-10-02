@@ -1,6 +1,14 @@
-.env.e2e
+# Telethon keeps the authorized session in a SQLite file, and the -journal,
+# -shm and -wal siblings are written next to it. A committed session file is
+# a committed account: anyone who can read it can log in as the test account.
 *.session
+*.session-journal
+*.session-shm
+*.session-wal
+
 __pycache__/
-venv/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
 .venv/
-*.egg-info/
+venv/
