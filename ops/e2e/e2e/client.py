@@ -9,12 +9,21 @@ from telethon.errors import SessionPasswordNeededError
 if TYPE_CHECKING:
     from e2e.config import Settings
 
-try:  # Telethon needs PySocks for a SOCKS proxy; hosts without one skip it.
-    import socks  # noqa: F401
+# Telethon prefers python-socks and falls back to PySocks, and warns about an
+# "ignored" proxy whenever python-socks is missing even though the fallback then
+# works. The host installs python-socks; either is enough to connect, so the
+# check accepts both rather than pretending only one exists.
+try:  # pragma: no cover - depends on the venv
+    import python_socks  # noqa: F401
 
     _SOCKS_AVAILABLE = True
 except ModuleNotFoundError:  # pragma: no cover - depends on the venv
-    _SOCKS_AVAILABLE = False
+    try:
+        import socks  # noqa: F401
+
+        _SOCKS_AVAILABLE = True
+    except ModuleNotFoundError:
+        _SOCKS_AVAILABLE = False
 
 
 def _proxy_tuple(spec: str) -> tuple[str, str, int] | None:
@@ -53,7 +62,7 @@ class TelegramTester:
             # Telethon speaks SOCKS only through PySocks. Checked here so the
             # failure names the missing package instead of arriving much later
             # as a connect timeout against the proxy port.
-            msg = "E2E_PROXY is set but PySocks is missing from the venv"
+            msg = "E2E_PROXY is set but neither python-socks nor PySocks is in the venv"
             raise RuntimeError(msg)
         self.client = TelegramClient(
             str(settings.session_path),
