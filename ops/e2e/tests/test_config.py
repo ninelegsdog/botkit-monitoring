@@ -98,3 +98,17 @@ def test_load_bots_rejects_empty_username(tmp_path):
     p.write_text("botkit-bookingbot: bookingbot_test_bot\nbotkit-support: \n")
     with pytest.raises(ValueError, match="botkit-support"):
         load_bots(p)
+
+
+def test_proxy_is_read_from_the_environment(monkeypatch):
+    monkeypatch.setenv("TG_API_ID", "1")
+    monkeypatch.setenv("TG_API_HASH", "h")
+    monkeypatch.delenv("E2E_PROXY", raising=False)
+    assert load_settings().proxy == ""
+
+
+def test_proxy_value_is_taken_verbatim(monkeypatch):
+    monkeypatch.setenv("TG_API_ID", "1")
+    monkeypatch.setenv("TG_API_HASH", "h")
+    monkeypatch.setenv("E2E_PROXY", "socks5:127.0.0.1:11080")
+    assert load_settings().proxy == "socks5:127.0.0.1:11080"

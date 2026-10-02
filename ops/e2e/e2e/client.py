@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import getpass
 from typing import TYPE_CHECKING, Any
 
 from telethon import TelegramClient
@@ -113,12 +114,19 @@ class TelegramTester:
                 "configured; run first_login.py on an admin machine instead of storing TG_PHONE here"
             )
             raise RuntimeError(msg)
+        await self.client.send_code_request(self.settings.phone)
         try:
-            await self.client.send_code_request(self.settings.phone)
-        except SessionPasswordNeededError as exc:  # pragma: no cover - depends on account 2FA
-            msg = "account requires 2FA; complete sign-in manually with first_login.py"
-            raise RuntimeError(msg) from exc
-        await self.client.sign_in(phone=self.settings.phone, code=lambda: input("Telegram code: "))
+            await self.client.sign_in(phone=self.settings.phone, code=lambda: input("Telegram code: "))
+        except SessionPasswordNeededError:
+            # Telethon raises this from sign_in, not from send_code_request, when the
+            # account has 2FA - see auth.py:200. The old handler sat around
+            # send_code_request and was marked no-cover, which is why nothing noticed:
+            # the exception never went there.
+            #
+            # Telethon's own flow retries sign_in with the password alone
+            # (auth.py:224-240), relying on the code hash it kept from the first
+            # attempt. getpass rather than input so the second factor is not echoed.
+            await self.client.sign_in(password=getpass.getpass("2FA password: "))
         if not await self.client.is_user_authorized():
             msg = "sign-in completed without producing an authorized session"
             raise RuntimeError(msg)

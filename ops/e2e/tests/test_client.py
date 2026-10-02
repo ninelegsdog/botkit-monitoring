@@ -51,8 +51,9 @@ def test_constructor_passes_session_labels(monkeypatch):
 
 
 class _FakeClient:
-    def __init__(self, authorized: bool) -> None:
+    def __init__(self, authorized: bool, two_factor: bool = False) -> None:
         self._authorized = authorized
+        self.two_factor = two_factor
         self.connected = False
         self.disconnected = False
         self.sign_in_calls: list[dict] = []
@@ -72,6 +73,10 @@ class _FakeClient:
 
     async def sign_in(self, **kw):
         self.sign_in_calls.append(kw)
+        if self.two_factor and "password" not in kw:
+            # Telethon raises this from sign_in when the account has 2FA and no
+            # password was supplied.
+            raise client_module.SessionPasswordNeededError(request=None)
         self._authorized = True
 
     async def disconnect(self):
@@ -83,6 +88,67 @@ def _tester_with(client) -> TelegramTester:
     t.client = client
     t.settings = _settings()
     return t
+
+
+def test_proxy_tuple_absent_for_empty_spec():
+    assert client_module._proxy_tuple("") is None
+
+
+def test_proxy_tuple_parses_socks5():
+    assert client_module._proxy_tuple("socks5:127.0.0.1:11080") == ("socks5", "127.0.0.1", 11080)
+    assert client_module._proxy_tuple("socks5:10.8.1.2:1080") == ("socks5", "10.8.1.2", 1080)
+
+
+def test_proxy_tuple_rejects_socks5h_because_telethon_cannot_use_it():
+    """socks5h is a curl convention; telethon has no such protocol.
+
+    Found on the live host: "socks5h:..." passed every unit test and then failed
+    inside telethon's connect path with "Unknown proxy protocol type", which
+    looks like a network fault rather than a setting mistake.
+    """
+    with pytest.raises(ValueError, match="socks5"):
+        client_module._proxy_tuple("socks5h:127.0.0.1:11080")
+
+
+def test_parsed_protocol_is_one_telethon_accepts():
+    """Keep the parser honest against telethon's accepted set rather than my memory of it."""
+    accepted = {"http", "https", "socks4", "socks5"}
+    parsed = client_module._proxy_tuple("socks5:127.0.0.1:11080")
+    assert parsed is not None
+    assert parsed[0] in accepted
+
+
+@pytest.mark.parametrize("spec", ["127.0.0.1:1080", "http://127.0.0.1:1080", "socks5:host", "socks5:host:abc"])
+def test_proxy_tuple_rejects_malformed_spec(spec):
+    """A typo must fail here, not silently produce a direct connection attempt.
+
+    Falling back to a direct connection would present as "the proxy is broken"
+    when the setting is the cause.
+    """
+    with pytest.raises(ValueError, match="E2E_PROXY"):
+        client_module._proxy_tuple(spec)
+
+
+def test_constructor_passes_the_proxy_through(monkeypatch):
+    """The E2E host egress is blackholed by Telegram, so the runner only reaches the
+    DC through the loopback SOCKS proxy. If the proxy were dropped here, the run
+    would fail as a connection timeout with no hint of the cause."""
+    seen = {}
+
+    def fake_client(session, api_id, api_hash, **kw):
+        seen.update(kw)
+        return object()
+
+    monkeypatch.setattr(client_module, "TelegramClient", fake_client)
+    TelegramTester(Settings(api_id=1, api_hash="h", proxy="socks5:127.0.0.1:11080"))
+    assert seen["proxy"] == ("socks5", "127.0.0.1", 11080)
+
+
+def test_constructor_without_proxy_passes_none(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(client_module, "TelegramClient", lambda *a, **kw: seen.update(kw))
+    TelegramTester(Settings(api_id=1, api_hash="h"))
+    assert seen["proxy"] is None
 
 
 def test_connect_accepts_already_authorized_session():
@@ -133,6 +199,55 @@ def test_connection_failure_without_proxy_names_the_real_fact():
     t = _tester_with(client)
     with pytest.raises(RuntimeError, match="directly"):
         asyncio.run(t.connect())
+
+
+def test_two_factor_account_is_completed(monkeypatch):
+    """The account has 2FA enabled, so this is the path that actually runs.
+
+    Telethon raises SessionPasswordNeededError from sign_in, not from
+    send_code_request. The old handler wrapped send_code_request and carried a
+    no-cover marker, so the branch was unreachable and the suite stayed green
+    while a login with 2FA would have died with a traceback.
+
+    Verified by mutation: deleting the except makes this fail.
+    """
+    monkeypatch.setattr(client_module.getpass, "getpass", lambda *_: "s3cret")
+    client = _FakeClient(authorized=False, two_factor=True)
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+
+    asyncio.run(t.connect())
+
+    assert len(client.sign_in_calls) == 2, client.sign_in_calls
+    assert "code" in client.sign_in_calls[0], "the first call must try the code alone"
+    assert "password" not in client.sign_in_calls[0], client.sign_in_calls[0]
+    assert client.sign_in_calls[1] == {"password": "s3cret"}, client.sign_in_calls[1]
+
+
+def test_two_factor_password_is_not_echoed(monkeypatch):
+    """The second factor is a secret; a plain input() would print it on screen."""
+    seen = {}
+
+    def fake_getpass(prompt):
+        seen["prompt"] = prompt
+        return "s3cret"
+
+    monkeypatch.setattr(client_module.getpass, "getpass", fake_getpass)
+    client = _FakeClient(authorized=False, two_factor=True)
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+    asyncio.run(t.connect())
+    assert "2FA" in seen.get("prompt", "")
+
+
+def test_sign_in_without_two_factor_asks_only_once(monkeypatch):
+    """No 2FA must not produce a second sign_in call."""
+    monkeypatch.setattr(client_module.getpass, "getpass", lambda *_: pytest.fail("password asked"))
+    client = _FakeClient(authorized=False)
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+    asyncio.run(t.connect())
+    assert len(client.sign_in_calls) == 1, client.sign_in_calls
 
 
 def test_connect_signs_in_when_phone_present():
