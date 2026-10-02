@@ -2,13 +2,17 @@
 #
 # check_backups.sh — проверяет свежесть и целостность бэкапов.
 # Запускается systemd timer каждый час. Если у бота нет свежего .ok статуса
-# (старше 7ч) или есть .fail — шлёт алерт в Alertmanager (localhost:9093) и
+# (старже 7ч) или есть .fail — шлёт алерт в Alertmanager (адрес из fleet.env) и
 # выходит с кодом 1. Алерты троттлятся: повторно не чаще раза в 6ч на бота.
 #
 set -u
+
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
 STATUS_DIR=/var/backups/botkit/status
 ALERTED_DIR=/var/backups/botkit/alerted
-AM_URL="http://localhost:9093/api/v2/alerts"
+# S1: was http://localhost:9093/... - localhost can resolve to ::1 where
+# nothing listens, which turns the curl into a silent no-op.
+AM_URL="$ALERTMANAGER_ALERTS_URL"
 MAX_AGE=25200   # 7h (timer бэкапа = 6h)
 THROTTLE=21600  # 6h между повторными алертами
 BOTS=$(for d in /home/deploy/botkit-*/; do b=$(basename "$d"); [ "$b" = "botkit-monitoring" ] && continue; echo "$b"; done)

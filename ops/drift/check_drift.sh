@@ -10,9 +10,11 @@
 #   - критично (host-network, контейнер down, compose fail, /health не 200):
 #     алерт сразу.
 # Лог: /var/log/botkit-drift.log; троттлинг алертов 6ч на бота.
+
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+
 
 DEPLOY_ROOT=/home/deploy
 ENV_ROOT=/usr/local/etc/botkit
@@ -30,18 +32,13 @@ STATE_DIR=/var/backups/botkit-drift
 WATCH_DIR="$STATE_DIR/watch"
 ALERTED_DIR="$STATE_DIR/alerted"
 LOG=/var/log/botkit-drift.log
-AM_URL="http://127.0.0.1:9093/api/v2/alerts"
+AM_URL="$ALERTMANAGER_ALERTS_URL"
 THROTTLE=21600   # 6h между повторами алерта
 GRACE_S=1800     # 30 мин окно rollout для tracking-mismatch
 
-# Флот — из ops/lib/fleet.env (единый источник истины); путь overridable для прод-копии.
-FLEET_ENV="${BOTKIT_FLEET_ENV:-$HERE/../lib/fleet.env}"
-[ -f "$FLEET_ENV" ] || FLEET_ENV=/root/botkit-webhook-check/fleet.env
-if [ -f "$FLEET_ENV" ]; then
-  # shellcheck disable=SC1090
-  . "$FLEET_ENV"
-fi
-BOTS="${FLEET:-bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089}"
+BOTS="$FLEET"   # S1: no inline fallback. A hardcoded default here is how two
+                # sources of truth come to disagree silently. BASE_URL and the
+                # monitoring addresses come from the same file via fleet.sh.
 
 mkdir -p "$STATE_DIR" "$WATCH_DIR" "$ALERTED_DIR"
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
@@ -116,7 +113,7 @@ for entry in $BOTS; do
   fi
 
   # --- /health (CRITICAL) ---
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "http://127.0.0.1:$port/health" || echo 000)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL$port/health" || echo 000)
   [ "$code" = "200" ] || critical+=("/health=$code")
 
   # --- compose validation (CRITICAL) ---

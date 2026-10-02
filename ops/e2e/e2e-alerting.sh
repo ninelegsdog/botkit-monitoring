@@ -18,12 +18,13 @@
 #
 set -eu
 
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
 PROM_DIR=/home/deploy/botkit-monitoring/prometheus
 ALERTS="$PROM_DIR/alerts.yml"
 BAK="$PROM_DIR/alerts.yml.e2e.bak"
 PROM=botkit-monitoring-prometheus-1
-AM_HOST=http://127.0.0.1:9093
-PROME_HOST=http://127.0.0.1:9090
+AM_HOST="$ALERTMANAGER_URL"
+PROME_HOST="$PROMETHEUS_URL"
 ALERT="E2E_ProbeGone_$(date +%s)"
 FIRING_OK=0; RESOLVE_OK=0
 
@@ -74,7 +75,7 @@ wait_for "prometheus: $ALERT firing" \
   && echo "OK   prometheus: firing" || true
 
 wait_for "alertmanager: $ALERT active" \
-  "curl -s '$AM_HOST/api/v2/alerts?active=true' | grep -q '$ALERT'" 120
+  "curl -s '$ALERTMANAGER_ALERTS_ACTIVE_URL' | grep -q '$ALERT'" 120
 
 T0=$(tg_total)
 echo "-- tg notifications before firing-delivery: $T0"
@@ -90,7 +91,7 @@ wait_for "prometheus: $ALERT gone" \
   && echo "OK   prometheus: alert gone" || true
 
 wait_for "alertmanager: $ALERT dropped (resolve)" \
-  "! curl -s '$AM_HOST/api/v2/alerts?active=true' | grep -q '$ALERT'" 300 \
+  "! curl -s '$ALERTMANAGER_ALERTS_ACTIVE_URL' | grep -q '$ALERT'" 300 \
   && echo "OK   alertmanager: alert dropped" || true
 
 T1=$(tg_total)

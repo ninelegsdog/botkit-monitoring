@@ -8,23 +8,18 @@
 # Алерт BotkitSmokeFailed в Alertmanager при любом FAIL (троттлинг 1ч на бота).
 # Лог: /var/log/botkit-smoke.log
 #
+
 set -u
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
 
-BASE="http://127.0.0.1"
-DOMAIN="https://${WEBHOOK_DOMAIN:-ninelegsbots.duckdns.org}/webhook"
-# Флот — из ops/lib/fleet.env (единый источник истины); путь overridable для прод-копии.
-FLEET_ENV="${BOTKIT_FLEET_ENV:-$HERE/../lib/fleet.env}"
-[ -f "$FLEET_ENV" ] || FLEET_ENV=/root/botkit-webhook-check/fleet.env
-if [ -f "$FLEET_ENV" ]; then
-  # shellcheck disable=SC1090
-  . "$FLEET_ENV"
-fi
-BOTS="${FLEET:-bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089}"
+
+DOMAIN="https://$WEBHOOK_DOMAIN/webhook"
+BOTS="$FLEET"   # S1: no inline fallback; see check_drift.sh
+BASE="$BASE_URL"
 
 LOG="${BOTKIT_SMOKE_LOG:-/var/log/botkit-smoke.log}"
-AM_URL="http://127.0.0.1:9093/api/v2/alerts"
+AM_URL="$ALERTMANAGER_ALERTS_URL"
 ALERTED_DIR="${BOTKIT_SMOKE_ALERTED_DIR:-/var/backups/botkit-smoke/alerted}"
 THROTTLE=3600   # 1h между повторными алертами на бота
 mkdir -p "$ALERTED_DIR"

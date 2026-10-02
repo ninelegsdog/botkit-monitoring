@@ -62,17 +62,14 @@ LOG_PATH = Path("/var/log/botkit-webhook-check.log")
 METRICS_DIR = Path("/var/lib/node-exporter-textfile")
 STATE_ROOT = Path("/var/lib/botkit-webhook-check")
 ALERT_ROOT = Path("/var/backups/botkit-webhook-check/alerted")
-AM_URL = "http://127.0.0.1:9093/api/v2/alerts"
+# S1: filled in by load_contract() from fleet.env.
+# A module constant here would make the alert destination unchangeable, which
+# is the exact shape of the 26.09 incident where an alert went nowhere.
+_AM_URL: str | None = None
 ALERT_THROTTLE_S = 3600
 ALERT_HOLD_H = 6
 HTTP_OK = 200
 API_TIMEOUT_S = 15
-
-FALLBACK_FLEET = (
-    "bookingbot:8081 leadgen:8082 store:8083 support:8084 membership:8085 "
-    "pricesentry:8086 docuflow:8087 delivery:8088 reminder:8089"
-)
-
 
 @dataclass(frozen=True)
 class Bot:
@@ -86,6 +83,7 @@ class Contract:
     domain: str
     ip: str
     source: str
+    alerts_url: str | None = None
 
 
 def _readable_file(path: Path) -> bool:
@@ -120,9 +118,13 @@ def load_contract(explicit: str | None = None) -> Contract:
     ]
 
     fleet_raw: str | None = None
+    # Domain and IP keep their built-in values: they are the single public
+    # endpoint, already asserted by test_webhook_contract.py, not a list that
+    # can drift out of step with the fleet.
     domain = "ninelegsbots.duckdns.org"
     ip = "2.27.204.95"
-    source = "builtin-fallback"
+    alerts_url: str | None = None
+    source = "not-found"
     for path in candidates:
         if not _readable_file(path):
             continue
@@ -132,11 +134,19 @@ def load_contract(explicit: str | None = None) -> Contract:
         fleet_raw = values.get("FLEET", fleet_raw)
         domain = values.get("WEBHOOK_DOMAIN", domain)
         ip = values.get("WEBHOOK_IP", ip)
+        alerts_url = values.get("ALERTMANAGER_ALERTS_URL", alerts_url)
         source = str(path)
         break
 
-    bots = [Bot(name=n, port=int(p)) for n, _, p in (e.partition(":") for e in (fleet_raw or FALLBACK_FLEET).split())]
-    return Contract(fleet=bots, domain=domain, ip=ip, source=source)
+    if not fleet_raw:
+        # S1: the built-in copy of the fleet is gone. A fallback list would let this
+        # check verify bots that no longer exist and still report PASS, which is
+        # exactly the failure mode of 2026-09-26. Refuse instead.
+        tried = ", ".join(str(c) for c in candidates)
+        msg = f"fleet.env has no FLEET; looked in {tried}"
+        raise RuntimeError(msg)
+    bots = [Bot(name=n, port=int(p)) for n, _, p in (e.partition(":") for e in fleet_raw.split())]
+    return Contract(fleet=bots, domain=domain, ip=ip, source=source, alerts_url=alerts_url)
 
 
 def now_iso() -> str:
@@ -222,10 +232,17 @@ def write_pending(bot: str, value: int) -> None:
 
 
 def _post_alerts(payload: list[dict]) -> str | None:
-    """Post alerts to Alertmanager. Returns an error string, or None on success."""
+    """Post alerts to Alertmanager. Returns an error string, or None on success.
+
+    A missing URL is an error, not a skip. Returning None here would report the
+    check as clean while the alert went nowhere, which is the failure this file
+    exists to detect in others.
+    """
+    if not _AM_URL:
+        return "ALERTMANAGER_ALERTS_URL is not set in fleet.env; alert not sent"
     try:
         request = urllib.request.Request(
-            AM_URL, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+            _AM_URL, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(request, timeout=5) as response:
             if response.status != HTTP_OK:
@@ -397,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
 
     log = Log(LOG_PATH)
     contract = load_contract(args.fleet_file)
+    global _AM_URL  # noqa: PLW0603 - one module-level config value, set once at startup
+    _AM_URL = contract.alerts_url
     domain = args.domain or contract.domain
     expected_ip = "" if args.domain else contract.ip
     bots = [b for b in contract.fleet if not args.bot or b.name == args.bot] or [Bot(str(args.bot), 0)]

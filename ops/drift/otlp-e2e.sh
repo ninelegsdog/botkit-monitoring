@@ -8,17 +8,17 @@
 #   - попытки считаются; после успеха purge watch-файла -> алерт resolved.
 # Лог: /var/log/botkit-otlp-e2e.log; троттлинг 30 мин.
 # Запуск: systemd timer каждые 15 мин как root на ПРОДЕ.
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+
 set -uo pipefail
 
-OTLP_URL="http://127.0.0.1:4318/v1/traces"
-TEMPO_URL="http://127.0.0.1:3200"
 SERVICE="verif-probe"
 SPAN_NAME="verif-e2e"
 
 LOG=/var/log/botkit-otlp-e2e.log
 STATE_DIR=/var/backups/botkit-otlp-e2e
 ALERTED_DIR="$STATE_DIR/alerted"
-AM_URL="http://127.0.0.1:9093/api/v2/alerts"
+AM_URL="$ALERTMANAGER_ALERTS_URL"
 THROTTLE=1800
 RETRIES=5
 SLEEP_S=3

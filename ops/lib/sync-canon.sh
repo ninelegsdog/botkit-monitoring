@@ -26,6 +26,14 @@ MARKERS=(
   "prometheus/blackbox.yml:tls_trusted"
   "prometheus/prometheus.yml:job_name: webhook-trusted"
   "prometheus/alerts.yml:BotWebhookTLSUntrusted"
+  # S1: fleet.env is now the single source for every monitoring address, and the
+  # whole point of a marker is that HEAD alone does not prove the sync took. A
+  # production copy of fleet.env without the new maps would make six scripts fall
+  # back to nothing, so its contents are asserted here too.
+  "ops/lib/fleet.env:ALERTMANAGER_ALERTS_URL"
+  "ops/lib/fleet.env:WG_OBSERVE_SUBNET"
+  "ops/e2e/smoke_all.sh:ALERTMANAGER_ALERTS_URL"
+  "ops/e2e/webhook_check.py:ALERTMANAGER_ALERTS_URL"
 )
 
 [ -d "$REPO" ] || { echo "FATAL: $REPO missing" >&2; exit 1; }

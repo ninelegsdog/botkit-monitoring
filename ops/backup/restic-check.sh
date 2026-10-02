@@ -5,7 +5,10 @@ PREFIX="[botkit-restic-check]"
 PW_DIR=${PW_DIR:-/root/.botkit-backup}
 BACKUP_HOST=${BACKUP_HOST:-31.76.11.198}
 TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_backup.prom}
-ALERTMANAGER_URL=${ALERTMANAGER_URL:-http://127.0.0.1:9093}
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+# S1: was a hardcoded default. fleet.sh is the single source; the env var
+# still wins so the unit can override it for a one-off.
+ALERTS_URL=${ALERTS_URL:-$ALERTMANAGER_ALERTS_URL}
 MAXAGE_DATA=28800
 MAXAGE_MONITOR=36000
 RETRIES=3
@@ -78,9 +81,9 @@ echo "$PREFIX метрики записаны в $TEXTFILE" >&2
 
 if [ "${#bad[@]}" -gt 0 ]; then
   for s in "${bad[@]}"; do
-    curl -sf -m 10 -XPOST -H 'Content-Type: application/json' "$ALERTMANAGER_URL/api/v2/alerts" \
+    curl -sf -m 10 -XPOST -H 'Content-Type: application/json' "$ALERTS_URL" \
       -d "[{\"labels\":{\"alertname\":\"BotkitBackupStale\",\"stream\":\"$s\",\"severity\":\"warning\"},\"annotations\":{\"summary\":\"Offsite-бэкап потока $s устарел или недоступен\"}}]" \
-      >/dev/null 2>&1 || echo "$PREFIX не удалось отправить алерт в Alertmanager ($ALERTMANAGER_URL)" >&2
+      >/dev/null 2>&1 || echo "$PREFIX не удалось отправить алерт в Alertmanager ($ALERTS_URL)" >&2
   done
   echo "$PREFIX ПРОВАЛ: потоки с проблемами: ${bad[*]}" >&2
   exit 1
