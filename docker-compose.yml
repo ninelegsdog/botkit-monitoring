@@ -211,8 +211,13 @@ services:
     cap_drop:
       - ALL
     read_only: true
-    tmpfs:
-      - /tmp
+    # No tmpfs on /tmp here, on purpose. With --path.rootfs=/host the collector
+    # prefixes every mountpoint with the rootfs path, so this container's own
+    # tmpfs at /tmp and the host's tmpfs at /tmp collapse into one identical label
+    # set (device=tmpfs, mountpoint=/tmp) and node_exporter rejects the second one:
+    # 7 duplicate-metric errors on every scrape. Measured on prod 10/10 scrapes with
+    # the tmpfs vs 0/10 without it. node_exporter never writes to /tmp, so
+    # read_only: true on its own is enough — and strictly tighter than before.
     mem_limit: 256m
     pids_limit: 64
     logging: *default-logging

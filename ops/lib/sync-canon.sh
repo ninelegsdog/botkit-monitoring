@@ -20,8 +20,16 @@
 set -euo pipefail
 
 REPO=${REPO:-/home/deploy/botkit-monitoring}
-EXPECT_REF="${1:-HEAD}"
 GIT_USER=${GIT_USER:-deploy}
+# --check-only runs the content assertions (steps 4 and 4b) against REPO and touches no
+# git state. It exists so the assertions can be exercised on a scratch copy - the only
+# way to show a gate fails is to feed it the defect it is supposed to catch.
+CHECK_ONLY=0
+if [ "${1:-}" = "--check-only" ]; then
+  CHECK_ONLY=1
+  shift
+fi
+EXPECT_REF="${1:-HEAD}"
 MARKERS=(
   "prometheus/blackbox.yml:tls_trusted"
   "prometheus/prometheus.yml:job_name: webhook-trusted"
@@ -38,6 +46,10 @@ MARKERS=(
 
 [ -d "$REPO" ] || { echo "FATAL: $REPO missing" >&2; exit 1; }
 
+if [ "$CHECK_ONLY" = 1 ]; then
+  echo "CHECK-ONLY: content assertions only, git untouched"
+  head_sha=$(git -c safe.directory="$REPO" -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
+else
 echo "=== 1. normalise ownership ($GIT_USER:$GIT_USER) ==="
 chown -R "$GIT_USER:$GIT_USER" "$REPO"
 
@@ -48,6 +60,7 @@ echo "=== 3. reset --hard as $GIT_USER ==="
 su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$REPO' -C '$REPO' reset --hard origin/main"
 head_sha=$(git -c safe.directory="$REPO" -C "$REPO" rev-parse --short HEAD)
 echo "  HEAD = $head_sha"
+fi
 
 if [ "$EXPECT_REF" != "HEAD" ] && [ "$head_sha" != "${EXPECT_REF:0:7}" ]; then
   echo "FATAL: HEAD=$head_sha, expected ${EXPECT_REF:0:7}" >&2
@@ -64,5 +77,19 @@ for marker in "${MARKERS[@]}"; do
   fi
   echo "  ok: $file has '$needle'"
 done
+
+# S2: node-exporter used to mount a tmpfs on /tmp. With --path.rootfs=/host the
+# collector prefixes every mountpoint with the rootfs, so the container's own /tmp and
+# the host's /tmp collapse into one identical label set and node_exporter rejects the
+# second - 7 duplicate-metric errors on every scrape. Markers above assert that content
+# arrived; this one asserts that something was *removed*, which no marker can do.
+echo "=== 4b. node-exporter must not mount a tmpfs on /tmp ==="
+ne_block=$(awk '/^  node-exporter:/{f=1;next} /^  [a-zA-Z]/{f=0} f' "$REPO/docker-compose.yml")
+if printf "%s\n" "$ne_block" | grep -qE '^[[:space:]]*- /tmp[[:space:]]*$'; then
+  echo "FATAL: node-exporter mounts tmpfs /tmp again - duplicate node_filesystem_* series." >&2
+  echo "       Remove it from docker-compose.yml; see the comment in the node-exporter block." >&2
+  exit 1
+fi
+echo "  ok: no /tmp tmpfs on node-exporter"
 
 echo "SYNC OK $head_sha"
