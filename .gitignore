@@ -12,3 +12,8 @@ tmp/
 *.bak.*
 .bak-*/
 .env.*
+
+# The E2E venv lives at the path the unit runs (/opt/botkit-e2e/venv), so the
+# bare name must be ignored too - .venv/ alone does not match it. Verified with
+# git status on the E2E host, where it showed up as untracked.
+venv/
