@@ -47,10 +47,15 @@ log() { echo "$(now) $*" >> "$LOG"; }
 
 send_alert() { # $1=b $2=sev $3=reason
   local bot="$1" sev="$2" reason="$3"
-  local last="$ALERTED_DIR/$bot" age
-  if [ -f "$last" ]; then
+  # The throttle key carries the severity, and critical is never throttled.
+  # One key per bot meant a still-open warning swallowed the alert that mattered:
+  # /health 000 or a stopped container stayed inside the six-hour window and the
+  # operator saw "ALERT throttled" instead of the outage. A throttle exists to
+  # stop repeats, not to decide which failures are worth reporting.
+  local last="$ALERTED_DIR/$bot.$sev" age
+  if [ "$sev" != "critical" ] && [ -f "$last" ]; then
     age=$(( $(now_s) - $(stat -c %Y "$last") ))
-    [ "$age" -lt "$THROTTLE" ] && { log "ALERT throttled $bot ($reason)"; return 0; }
+    [ "$age" -lt "$THROTTLE" ] && { log "ALERT throttled $bot ($sev: $reason)"; return 0; }
   fi
   local payload
   payload="[{\"labels\":{\"alertname\":\"BotkitDrift\",\"severity\":\"$sev\",\"bot\":\"$bot\",\"service\":\"botkit-drift\"},\"annotations\":{\"summary\":\"drift $bot\",\"description\":\"${reason:0:200}\"}}]"
@@ -99,21 +104,48 @@ for entry in $BOTS; do
   running=$(docker inspect -f '{{.State.Running}}' "$ctr" 2>/dev/null || echo "unknown")
   [ "$running" = "true" ] || critical+=("container not running ($running)")
 
-  # --- image tag: channel prefix + sha matches HEAD (tracking) ---
+  # --- image tag: channel prefix + no unbuilt runtime change (tracking) ---
   img=$(docker inspect -f '{{.Config.Image}}' "$ctr" 2>/dev/null || echo "unknown")
   case "$img" in
     *":$CHANNEL-"*) ;;
     *) track+=("image tag not on channel $CHANNEL: $img") ;;
   esac
   if [ -n "${head:-}" ] && [ "$img" != "unknown" ]; then
-    imgsha=$(echo "$img" | sed -n "s#.*/$CHANNEL-\([0-9a-f]\{7\}\).*#\1#p")
-    if [ -n "$imgsha" ] && [ "$imgsha" != "${head:0:7}" ]; then
-      track+=("image tag sha $imgsha != HEAD sha ${head:0:7}")
+    # The sha follows a colon, never a slash: the registry and the repository name
+    # sit in front of it. With a slash in the pattern the substitution matched nothing,
+    # so this whole comparison was dead code - the log line printed a stale sha next to
+    # HEAD and the bot was still reported OK. ops/e2e/tests/test_drift_contract.py
+    # fails on the old pattern, because a check that cannot fire looks identical to a
+    # check that has nothing to report.
+    imgsha=$(echo "$img" | sed -n "s#.*:$CHANNEL-\([0-9a-f]\{7\}\).*#\1#p")
+    if [ -z "$imgsha" ]; then
+      track+=("cannot read the build sha from the image tag: $img")
+    elif [ "$imgsha" != "${head:0:7}" ]; then
+      # A sha mismatch on its own is not staleness. deploy.yml skips documentation and
+      # test paths, so for those commits no image is ever built and the tag legitimately
+      # trails HEAD. Only a change that would land inside the image counts.
+      if ! git -c safe.directory="$d" -C "$d" cat-file -e "$imgsha^{commit}" 2>/dev/null; then
+        track+=("image sha $imgsha is not in this clone, cannot verify what it built")
+      else
+        stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" -- \
+          bot.py src deploy pyproject.toml Dockerfile docker-compose.yml \
+          .github/workflows/deploy.yml 2>/dev/null | tr '\n' ' ')
+        if [ -n "$stale" ]; then
+          track+=("image $imgsha is older than HEAD ${head:0:7}, unbuilt: $stale")
+        else
+          log "IMG OK $bot (image $imgsha vs HEAD ${head:0:7}: docs and tests only)"
+        fi
+      fi
     fi
   fi
 
   # --- /health (CRITICAL) ---
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL$port/health" || echo 000)
+  # BASE_URL carries no trailing colon in fleet.env, so the separator has to be here.
+  # smoke_all.sh has always spelled it "$BASE:$port/health"; without the colon this URL
+  # comes out as http://127.0.0.18081/health, curl answers 000, and a perfectly healthy
+  # fleet reports nine criticals. The drift check had never been run against this fleet.env,
+  # which is why nobody saw it: the copy on the host hardcoded the address instead.
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL:$port/health" || echo 000)
   [ "$code" = "200" ] || critical+=("/health=$code")
 
   # --- compose validation (CRITICAL) ---

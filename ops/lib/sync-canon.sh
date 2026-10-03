@@ -92,4 +92,18 @@ if printf "%s\n" "$ne_block" | grep -qE '^[[:space:]]*- /tmp[[:space:]]*$'; then
 fi
 echo "  ok: no /tmp tmpfs on node-exporter"
 
+echo "=== 4c. every ops script must parse ==="
+# The timers run these scripts straight out of this repository, so a syntax error in a canon
+# commit is not caught by anything else here: the unit would fail on every run, or - worse -
+# exit early and look like a clean check. Assert that each one parses before declaring the
+# sync good, the same way step 4 asserts that content arrived.
+while IFS= read -r -d '' script; do
+  if ! bash -n "$script" 2>/dev/null; then
+    echo "FATAL: $script does not parse - refusing to report SYNC OK" >&2
+    bash -n "$script" || true
+    exit 1
+  fi
+  echo "  ok: ${script#"$REPO"/} parses"
+done < <(find "$REPO/ops" -name '*.sh' -print0 | sort -z)
+
 echo "SYNC OK $head_sha"

@@ -5,5 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/botkit-drift/check_drift.sh
+# Run the script out of the synced repository. The copy this unit used to point at lived in
+# /opt/botkit-drift and was installed by hand: it had fallen behind canon, so the check that
+# reports drift had itself drifted, and nothing here could notice. sync-canon.sh now also
+# asserts that every ops script parses, so a broken canon commit fails the sync instead of
+# quietly unmonitoring the fleet.
+#
+# bash is named explicitly because the repository file is not marked executable, and
+# check_drift.sh sources ../lib/fleet.sh relative to its own location - which only resolves
+# from inside the repository.
+ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/drift/check_drift.sh
 TimeoutStartSec=300
