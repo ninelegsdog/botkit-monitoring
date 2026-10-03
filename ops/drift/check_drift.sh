@@ -127,13 +127,17 @@ for entry in $BOTS; do
       if ! git -c safe.directory="$d" -C "$d" cat-file -e "$imgsha^{commit}" 2>/dev/null; then
         track+=("image sha $imgsha is not in this clone, cannot verify what it built")
       else
+        # What counts is what lands inside the image. The build recipe (Dockerfile) is in;
+        # the CI workflow that runs the build is deliberately not. A live run on 03.10
+        # settled this: the only commits between the running tag and HEAD were the two that
+        # changed deploy.yml, so including it pinned all nine bots to a permanent warning
+        # that no rollout could clear except a pointless rebuild of the whole fleet.
         stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" -- \
-          bot.py src deploy pyproject.toml Dockerfile docker-compose.yml \
-          .github/workflows/deploy.yml 2>/dev/null | tr '\n' ' ')
+          bot.py src deploy pyproject.toml Dockerfile docker-compose.yml 2>/dev/null | tr '\n' ' ')
         if [ -n "$stale" ]; then
           track+=("image $imgsha is older than HEAD ${head:0:7}, unbuilt: $stale")
         else
-          log "IMG OK $bot (image $imgsha vs HEAD ${head:0:7}: docs and tests only)"
+          log "IMG OK $bot (image $imgsha vs HEAD ${head:0:7}: docs, tests and CI only)"
         fi
       fi
     fi

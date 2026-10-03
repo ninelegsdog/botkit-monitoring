@@ -45,6 +45,7 @@ IMAGE_PREFIX = f"ghcr.io/ninelegsdog/botkit-{BOT}:{CHANNEL}-"
 # built for those commits and the tag legitimately trails HEAD.
 RUNTIME_PATH = "src/handlers.py"
 DOCS_PATH = "README.md"
+WORKFLOW_PATH = ".github/workflows/deploy.yml"
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "contract",
@@ -240,6 +241,22 @@ def test_docs_only_commit_is_not_reported_as_drift(sandbox: Sandbox) -> None:
     log = sandbox.log_text()
     assert "IMG OK" in log
     assert "unbuilt:" not in log, f"a documentation-only commit was reported as unbuilt: {log}"
+
+
+def test_workflow_only_change_is_not_reported_as_unbuilt(sandbox: Sandbox) -> None:
+    """A commit that only changes the CI workflow does not stale the running image.
+
+    Found by running the check on the live fleet on 03.10: the only commits between the
+    running tag and HEAD were the two that edited deploy.yml, and with that path in the
+    list all nine bots reported as unbuilt. No rollout could clear that except rebuilding
+    the whole fleet for a change that never reaches the image.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={WORKFLOW_PATH: "name: on push\n"})
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "IMG OK" in log, log
+    assert "unbuilt:" not in log, f"a CI-only commit was reported as unbuilt: {log}"
 
 
 def test_runtime_commit_is_reported_as_unbuilt(sandbox: Sandbox) -> None:
