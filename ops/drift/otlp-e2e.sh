@@ -19,9 +19,20 @@ LOG=/var/log/botkit-otlp-e2e.log
 STATE_DIR=/var/backups/botkit-otlp-e2e
 ALERTED_DIR="$STATE_DIR/alerted"
 AM_URL="$ALERTMANAGER_ALERTS_URL"
+# fleet.env calls this OTLP_HTTP_URL, and the value is already the full /v1/traces endpoint.
+# The name OTLP_URL never existed, so under `set -u` the probe died on the first curl with
+# "OTLP_URL: unbound variable" and never sent a span. Nobody saw it: the host ran the older
+# hand-installed copy from /opt, which hardcodes the URL, so the broken canon script had
+# never been executed anywhere.
+OTLP_URL="$OTLP_HTTP_URL"
 THROTTLE=1800
 RETRIES=5
 SLEEP_S=3
+
+# Name the missing variable at the point of failure instead of at its first use.
+for required in OTLP_HTTP_URL TEMPO_URL ALERTMANAGER_ALERTS_URL; do
+  [ -n "${!required:-}" ] || { echo "FATAL: $required is not set by fleet.env" >&2; exit 78; }
+done
 
 mkdir -p "$ALERTED_DIR"
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }

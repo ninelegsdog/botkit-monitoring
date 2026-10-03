@@ -36,5 +36,25 @@ RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
+UMask=0077
+# ProtectSystem=strict closes the whole filesystem except ReadWritePaths, and that includes
+# /home/deploy - where the check runs `git fetch` to compare HEAD against origin/main. The
+# first version of this isolation listed /home/deploy as read-only and every bot went to
+# "WATCH hold: git fetch failed", which is a false signal, not a real drift.
+#
+# Only .git directories are opened, and only because git writes FETCH_HEAD, refs and
+# objects there; the checked-out working trees stay read-only. Listing the nine explicitly
+# beats listing /home/deploy, which would hand the check write access to the code it audits.
+# The '-' prefix skips a path that does not exist: systemd otherwise refuses to start the
+# unit at all, so one renamed bot would turn the drift check off entirely rather than
+# report one unreadable clone. Same lesson as InaccessiblePaths in botkit-e2e.service.
 ReadWritePaths=/var/backups/botkit-drift /var/log
-ReadOnlyPaths=/home/deploy /home/deploy/botkit-monitoring
+ReadWritePaths=-/home/deploy/botkit-bookingbot/.git
+ReadWritePaths=-/home/deploy/botkit-leadgen/.git
+ReadWritePaths=-/home/deploy/botkit-store/.git
+ReadWritePaths=-/home/deploy/botkit-support/.git
+ReadWritePaths=-/home/deploy/botkit-membership/.git
+ReadWritePaths=-/home/deploy/botkit-pricesentry/.git
+ReadWritePaths=-/home/deploy/botkit-docuflow/.git
+ReadWritePaths=-/home/deploy/botkit-delivery/.git
+ReadWritePaths=-/home/deploy/botkit-reminder/.git
