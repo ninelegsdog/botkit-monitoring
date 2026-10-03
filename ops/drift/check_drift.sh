@@ -23,14 +23,10 @@ ENV_ROOT=/usr/local/etc/botkit
 # is one deploy away from diverging, with nothing watching it. Same reasoning as the unit's
 # ExecStart: the file that runs should be the file that is in version control.
 VALIDATOR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/validate_compose.py"
-CHANNEL=""
-CONF=/opt/botkit-rollout/version.conf
-# The rollout marker is optional and its path is a variable, so shellcheck cannot
-# follow it. set -e is not enabled here, so a missing marker leaves CHANNEL at the
-# pinned default instead of aborting the drift check.
-# shellcheck disable=SC1090
-[ -f "$CONF" ] && source "$CONF"
-CHANNEL="${CHANNEL:-v0.8.2}"
+# CHANNEL arrives from fleet.sh, which fails at load time if it is unset. It used to be
+# read from a hand-written /opt/botkit-rollout/version.conf that lived outside git, with a
+# hardcoded v0.8.2 fallback - so a missing marker silently turned the image-tag check into a
+# comparison against a value nobody was maintaining.
 
 STATE_DIR=/var/backups/botkit-drift
 WATCH_DIR="$STATE_DIR/watch"

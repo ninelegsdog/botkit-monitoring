@@ -1,0 +1,36 @@
+[Unit]
+Description=Botkit rollout check: poll GHCR channel tags, health-gated rollout
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run the script out of the synced repository. Until 2026-10-03 this pointed at
+# /opt/botkit-rollout/check_updates.sh - a hand-installed copy with no counterpart in git,
+# so the subsystem that decides whether to replace nine live containers was the one part of
+# the monitoring stack that review and the drift check could not see. sync-canon.sh asserts
+# that every ops script parses, so a broken canon commit fails the sync instead.
+#
+# bash is named explicitly: repository files are not marked executable, and check_updates.sh
+# resolves deploy_rollout.sh from its own directory - which only works from inside the repo.
+ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/check_updates.sh
+TimeoutStartSec=1800
+# The job's whole purpose is `docker pull` followed by `docker compose up`, as root. That
+# makes root-equivalence unavoidable through the docker socket, so this is defence in depth
+# rather than isolation from root: the daemon's storage and the two state directories are
+# writable, while /etc, /usr and the bot deployments are not. ProtectHome stays off because
+# the maintenance flag is /root/botkit-maintenance.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+UMask=0077
+ReadWritePaths=/var/lib/botkit-rollout /var/log /var/lib/docker
+ReadOnlyPaths=/home/deploy /usr/local/etc/botkit

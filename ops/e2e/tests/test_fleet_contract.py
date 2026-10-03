@@ -74,7 +74,18 @@ GUARDED = [
     "ops/e2e/smoke_all.sh",
     "ops/e2e/e2e-alerting.sh",
     "ops/e2e/webhook_check.py",
+    # Added 2026-10-03 with the rollout subsystem: it was the only operational script with
+    # no counterpart in git, so nothing could check it. check_updates.sh polls GitHub and
+    # GHCR and names no monitoring address, which is what GUARDED asserts.
+    "ops/rollout/check_updates.sh",
 ]
+
+# deploy_rollout.sh deliberately stays out of GUARDED. It pings each bot's own /health and
+# /metrics on 127.0.0.1:<port> from its port map, and that is the bot's port, not a
+# monitoring endpoint - GUARDED would flag correct code. What mattered there was the
+# Alertmanager URL, which was hardcoded and is now $ALERTMANAGER_ALERTS_URL from fleet.env;
+# test_deploy_rollout_takes_alerts_from_fleet_env below pins that one requirement.
+ROLLOUT_NEEDS_FLEET = ["ops/rollout/deploy_rollout.sh"]
 
 ADDRESS = re.compile(r"\b(?:\d{1,3}(?:\.\d{1,3}){3}|localhost):(?:[0-9]{2,5})\b")
 
@@ -207,3 +218,24 @@ def test_the_scanners_actually_find_known_addresses():
     sample = 'curl "http://127.0.0.1:9093/api/v2/alerts"\n'
     assert ADDRESS.search(sample), "the address regex stopped matching"
     assert "127.0.0.1:9093" in sample
+
+
+@pytest.mark.parametrize("rel", ROLLOUT_NEEDS_FLEET)
+def test_deploy_rollout_takes_alerts_from_fleet_env(rel):
+    """The one address deploy_rollout.sh must not name itself is the Alertmanager one.
+
+    Its per-bot health and metrics URLs are legitimately literal, which is why this script
+    is not in GUARDED. The alert destination is different: a hardcoded value there is what
+    kept the whole rollout subsystem outside git, because the contract test failed it.
+    """
+    text = (REPO / rel).read_text()
+    assert "lib/fleet.sh" in text, f"{rel} does not source ops/lib/fleet.sh"
+    offenders = [
+        f"{rel}:{i}"
+        for i, line in enumerate(text.splitlines(), 1)
+        if "/api/v2/alerts" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, (
+        f"hardcoded alert endpoint in {offenders} - take $ALERTMANAGER_ALERTS_URL from fleet.env"
+    )
+    assert 'AM_URL="$ALERTMANAGER_ALERTS_URL"' in text, f"{rel} does not take the URL from fleet.env"
