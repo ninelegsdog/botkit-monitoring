@@ -16,11 +16,17 @@ Type=oneshot
 # from inside the repository.
 ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/drift/check_drift.sh
 TimeoutStartSec=300
-# The unit used to run as bare root with no isolation at all. The script is read-only apart
-# from its own state and log, so the filesystem is pinned: the deployment tree and the
-# monitoring checkout stay readable and nothing else is writable. ProtectHome is left off
-# deliberately - the check has to read /home/deploy/botkit-*/.git to compare HEAD against
-# origin/main, and ReadWritePaths cannot re-open a path that ProtectHome closed.
+# The unit used to run as bare root with no isolation at all. The script only ever needs to
+# read the clones and write its own state and log, so the filesystem is pinned.
+#
+# ProtectHome stays off on purpose: the check reads /home/deploy/botkit-*/.git, and
+# ReadWritePaths cannot re-open a path that ProtectHome closed.
+#
+# ReadOnlyPaths=/home/deploy is NOT redundant with ProtectSystem=strict - it was measured.
+# With ProtectSystem=strict alone, /etc and /usr became read-only while /home/deploy stayed
+# writable, including the checked-out trees the check is supposed to audit. Probed with
+# systemd-run inside the same hardening: `touch /home/deploy/zz.txt` succeeded. So the trees
+# are pinned explicitly here and only the nine .git directories are handed back.
 #
 # Running as root is not changed: the check reads container state through the docker CLI, and
 # membership of the docker group is root-equivalent, so a dedicated user would be theatre.
@@ -42,12 +48,13 @@ UMask=0077
 # first version of this isolation listed /home/deploy as read-only and every bot went to
 # "WATCH hold: git fetch failed", which is a false signal, not a real drift.
 #
-# Only .git directories are opened, and only because git writes FETCH_HEAD, refs and
-# objects there; the checked-out working trees stay read-only. Listing the nine explicitly
-# beats listing /home/deploy, which would hand the check write access to the code it audits.
+# Only .git directories are opened, and only because git writes FETCH_HEAD, refs and objects
+# there. Listing the nine explicitly beats listing /home/deploy, which would hand the check
+# write access to the code it audits.
 # The '-' prefix skips a path that does not exist: systemd otherwise refuses to start the
 # unit at all, so one renamed bot would turn the drift check off entirely rather than
 # report one unreadable clone. Same lesson as InaccessiblePaths in botkit-e2e.service.
+ReadOnlyPaths=/home/deploy
 ReadWritePaths=/var/backups/botkit-drift /var/log
 ReadWritePaths=-/home/deploy/botkit-bookingbot/.git
 ReadWritePaths=-/home/deploy/botkit-leadgen/.git
