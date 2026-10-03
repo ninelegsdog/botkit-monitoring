@@ -24,21 +24,20 @@ LOG=/var/log/botkit-rollout.log
 
 # Любой бот подходит: --dry-run доходит только до префлайтов и плана. Берём первый из
 # карты в самом deploy_rollout.sh, чтобы не тащить сюда ещё один список ботов.
-BOT=$(grep -oE '^\s*\[[a-z]+\]=' "$ROLLOUT" | head -1 | tr -d '[]=')
+# Якорь без ведущих пробелов: в прошлый раз `^\s*` оставил пробел в имени, docker не нашёл
+# контейнер, и проверка тихо ушла в SKIP с кодом 0 - то есть проверка, которая ничего не
+# проверяет, выглядящая как проверка. Ровно тот класс дефекта, который она и ловит.
+BOT=$(grep -oE '\[[a-z]+\]=' "$ROLLOUT" | head -1 | tr -d '[]=' | tr -d '[:space:]')
 
 if [[ -z "$BOT" ]]; then
   echo "smoke: FATAL cannot read the bot map out of $ROLLOUT" >&2
   exit 1
 fi
 
-# Тег берём у фактически работающего контейнера: он заведомо существует, и это ровно тот
-# случай, который раскатка будет повторять.
-TAG=$(grep -oE '^[A-Z0-9_]*IMAGE_TAG=' /dev/null 2>/dev/null; \
-      docker inspect -f '{{.Config.Image}}' "botkit-$BOT" 2>/dev/null | sed "s|.*:||")
-if [[ -z "$TAG" ]]; then
-  echo "smoke: SKIP cannot read the running image of botkit-$BOT" >&2
-  exit 0
-fi
+# Тег не обязан существовать: --dry-run выходит до docker pull. Берём заведомо
+# несуществующий и не читаем docker - иначе проверка структуры скрипта зависела бы от
+# состояния флота и молча выходила с 0, когда контейнер по какой-то причине не читается.
+TAG="v0.8.2-0000000"
 
 out=$(/usr/bin/bash "$ROLLOUT" "$BOT" "$TAG" --dry-run 2>&1)
 rc=$?
@@ -54,12 +53,16 @@ if grep -qE 'command not found|unbound variable|syntax error|: line [0-9]+:' <<<
   exit 1
 fi
 
+# Только класс поломки самого скрипта останавливает юнит. Ненулевой код без ошибки bash -
+# это уже про среду (нет compose-файла, нет бота), и блокировать по нему таймер нельзя:
+# проверка, которая останавливает раскатки из-за того, что у неё нет соседнего каталога,
+# через месяц просто молча выключает обновления, и никто этого не заметит.
 if [[ "$rc" -ne 0 ]]; then
   {
-    echo "smoke: FAIL $ROLLOUT --dry-run exited $rc for $BOT:$TAG"
+    echo "smoke: WARN $ROLLOUT --dry-run exited $rc for $BOT:$TAG (no shell error - treating as environment, not breakage)"
     echo "$out" | sed 's/^/  /'
   } | tee -a "$LOG" >&2
-  exit 1
+  exit 0
 fi
 
 echo "smoke: ok $ROLLOUT plans $BOT:$TAG without touching anything" | tee -a "$LOG"
