@@ -239,3 +239,23 @@ def test_deploy_rollout_takes_alerts_from_fleet_env(rel):
         f"hardcoded alert endpoint in {offenders} - take $ALERTMANAGER_ALERTS_URL from fleet.env"
     )
     assert 'AM_URL="$ALERTMANAGER_ALERTS_URL"' in text, f"{rel} does not take the URL from fleet.env"
+
+
+def test_deploy_rollout_flags_are_position_independent():
+    """A flag must never be read as the image tag.
+
+    `IMG="${2:-main}"` put `--failpoint=health` - the rollback drill this script documents
+    in its own header - into the image reference, so TARGET_IMAGE became
+    <registry>/botkit-reminder:--failpoint=health, docker pull refused, and the drill could
+    never run. `--dry-run` had the same defect and only hid it by exiting early. Found on
+    the live host on 03.10, before running the drill for real.
+    """
+    text = (REPO / "ops/rollout/deploy_rollout.sh").read_text()
+    # Comment lines are skipped, the same way the address gate does: the explanation above
+    # the parser quotes the old form on purpose, so a naive substring check fails the fix.
+    code = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    assert 'IMG="${2:-main}"' not in "\n".join(code), "positional IMG assignment is back"
+    # The positional slots are filled by shape, not by argument number.
+    assert 'if [ -z "$bot" ]' in text and 'elif [ -z "$IMG" ]' in text, (
+        "positional arguments are not parsed by shape - a flag can still land in a slot"
+    )

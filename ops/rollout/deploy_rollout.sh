@@ -37,16 +37,39 @@ AM_URL="$ALERTMANAGER_ALERTS_URL"
 HEALTH_TRIES=6
 HEALTH_WAIT=3
 
-bot="${1:-}"
-IMG="${2:-main}"
+# Flags are parsed by shape, not by position. The original took IMG="${2:-main}" blindly,
+# so `--failpoint=health` - the drill documented in this file's own header - landed in the
+# image tag: TARGET_IMAGE became <registry>/botkit-reminder:--failpoint=health, docker pull
+# refused, and the rollback drill could never run. Proven live on 03.10, where the plan line
+# printed the flag as the tag. `--dry-run` had the same defect and merely hid it by exiting
+# early.
+bot=""
+IMG=""
 DRY=0
 FAILPOINT=""
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
     --failpoint=*) FAILPOINT="${a#*=}" ;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    -*) echo "unknown flag: $a" >&2; exit 2 ;;
+    *)
+      if [ -z "$bot" ]; then
+        bot="$a"
+      elif [ -z "$IMG" ]; then
+        IMG="$a"
+      else
+        echo "unexpected argument: $a" >&2
+        exit 2
+      fi
+      ;;
   esac
 done
+if [ -z "$bot" ]; then
+  echo "usage: $0 <bot> [image:tag] [--dry-run] [--failpoint=health]" >&2
+  exit 2
+fi
+IMG="${IMG:-main}"
 
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "$(now) $*" | tee -a "$LOG" >&2; }
