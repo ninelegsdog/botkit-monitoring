@@ -50,6 +50,15 @@ def test_constructor_passes_session_labels(monkeypatch):
     assert seen["app_version"] == "botkit-e2e/9.9"
 
 
+def _stub_code(monkeypatch, value: str = "424242") -> None:
+    """Answer the code prompt the way the operator does.
+
+    The code is read with a plain input() in client.py, so a test that reaches it without
+    this reads pytest's captured stdin and dies with EOFError instead of testing anything.
+    """
+    monkeypatch.setattr("builtins.input", lambda *_a, **_k: value)
+
+
 class _FakeClient:
     def __init__(self, authorized: bool, two_factor: bool = False) -> None:
         self._authorized = authorized
@@ -73,6 +82,16 @@ class _FakeClient:
 
     async def sign_in(self, **kw):
         self.sign_in_calls.append(kw)
+        # Mirror telethon 1.45 rather than being more forgiving than it. That version types
+        # `code` as Union[str, int] and builds the request with `str(code)`; it never calls
+        # a callable. A double that accepted a callable silently is why
+        # `code=lambda: input(...)` shipped and why every real login failed at
+        # PhoneCodeInvalidError with input() never reached.
+        if callable(kw.get("code")):
+            raise AssertionError(
+                "sign_in was handed a callable; telethon 1.45 str()s the code instead of "
+                f"calling it, so this would send {str(kw['code'])[:40]!r} as the code"
+            )
         if self.two_factor and "password" not in kw:
             # Telethon raises this from sign_in when the account has 2FA and no
             # password was supplied.
@@ -201,6 +220,28 @@ def test_connection_failure_without_proxy_names_the_real_fact():
         asyncio.run(t.connect())
 
 
+def test_code_reaches_sign_in_as_a_string(monkeypatch):
+    """The bug this file exists to prevent, stated as a contract.
+
+    telethon 1.45 types `code` as Union[str, int] and sends `str(code)`; it does not call a
+    callable. Passing `code=lambda: input(...)` therefore sent the callable's repr to
+    Telegram: PhoneCodeInvalidError came straight back, the prompt never appeared, and a
+    real login could not be completed. Verified by mutation - restoring the lambda fails
+    this test.
+    """
+    _stub_code(monkeypatch, "424242")
+    client = _FakeClient(authorized=False)
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+
+    asyncio.run(t.connect())
+
+    assert len(client.sign_in_calls) == 1, client.sign_in_calls
+    code = client.sign_in_calls[0].get("code")
+    assert code == "424242", f"sign_in got {code!r} instead of the code the operator typed"
+    assert isinstance(code, str)
+
+
 def test_two_factor_account_is_completed(monkeypatch):
     """The account has 2FA enabled, so this is the path that actually runs.
 
@@ -212,6 +253,7 @@ def test_two_factor_account_is_completed(monkeypatch):
     Verified by mutation: deleting the except makes this fail.
     """
     monkeypatch.setattr(client_module.getpass, "getpass", lambda *_: "s3cret")
+    _stub_code(monkeypatch)
     client = _FakeClient(authorized=False, two_factor=True)
     t = _tester_with(client)
     t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
@@ -233,6 +275,7 @@ def test_two_factor_password_is_not_echoed(monkeypatch):
         return "s3cret"
 
     monkeypatch.setattr(client_module.getpass, "getpass", fake_getpass)
+    _stub_code(monkeypatch)
     client = _FakeClient(authorized=False, two_factor=True)
     t = _tester_with(client)
     t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
@@ -243,6 +286,7 @@ def test_two_factor_password_is_not_echoed(monkeypatch):
 def test_sign_in_without_two_factor_asks_only_once(monkeypatch):
     """No 2FA must not produce a second sign_in call."""
     monkeypatch.setattr(client_module.getpass, "getpass", lambda *_: pytest.fail("password asked"))
+    _stub_code(monkeypatch)
     client = _FakeClient(authorized=False)
     t = _tester_with(client)
     t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
@@ -250,7 +294,8 @@ def test_sign_in_without_two_factor_asks_only_once(monkeypatch):
     assert len(client.sign_in_calls) == 1, client.sign_in_calls
 
 
-def test_connect_signs_in_when_phone_present():
+def test_connect_signs_in_when_phone_present(monkeypatch):
+    _stub_code(monkeypatch)
     client = _FakeClient(authorized=False)
     t = _tester_with(client)
     t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")

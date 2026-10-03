@@ -115,17 +115,24 @@ class TelegramTester:
             )
             raise RuntimeError(msg)
         await self.client.send_code_request(self.settings.phone)
+        # telethon 1.45 dropped the callable form of `code` in sign_in: the parameter is
+        # typed Union[str, int] and the request is built with `str(code)`. Passing
+        # `lambda: input(...)` therefore sent the callable's repr as the code, so
+        # PhoneCodeInvalidError came back instantly, input() was never called, and the
+        # prompt never appeared - which read as "the operator cannot enter the code".
+        # The code is read here and handed over as a string, which is what 1.45 accepts.
+        code = input("Telegram code: ")
         try:
-            await self.client.sign_in(phone=self.settings.phone, code=lambda: input("Telegram code: "))
+            await self.client.sign_in(phone=self.settings.phone, code=code)
         except SessionPasswordNeededError:
             # Telethon raises this from sign_in, not from send_code_request, when the
-            # account has 2FA - see auth.py:200. The old handler sat around
-            # send_code_request and was marked no-cover, which is why nothing noticed:
-            # the exception never went there.
+            # account has 2FA. The old handler sat around send_code_request and was
+            # marked no-cover, which is why nothing noticed: the exception never went
+            # there.
             #
-            # Telethon's own flow retries sign_in with the password alone
-            # (auth.py:224-240), relying on the code hash it kept from the first
-            # attempt. getpass rather than input so the second factor is not echoed.
+            # Telethon's own flow retries sign_in with the password alone, relying on the
+            # code hash it kept from the first attempt. getpass rather than input so the
+            # second factor is not echoed.
             await self.client.sign_in(password=getpass.getpass("2FA password: "))
         if not await self.client.is_user_authorized():
             msg = "sign-in completed without producing an authorized session"
