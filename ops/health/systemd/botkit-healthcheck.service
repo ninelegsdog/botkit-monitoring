@@ -5,4 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/botkit-monitor/healthcheck.sh
+# Run the script out of the synced repository. The copy in /opt/botkit-monitor was installed
+# by hand and happened to be byte-identical when checked - which is exactly why it is worth
+# removing: an in-sync duplicate is one deploy away from diverging, and the drift check
+# would not have seen it, because the shadow is not the file the unit was supposed to run.
+# The script has no absolute dependencies of its own, so it needs nothing but its own path.
+ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/health/healthcheck.sh
