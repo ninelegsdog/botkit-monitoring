@@ -93,6 +93,38 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 2
 fi
 
+# The container must be able to open its SQLite file before we replace it.
+# compose pins the runtime user (user: "1001:1001") and bind-mounts ../data into
+# /app/data, while the host directory keeps whatever owner it happens to have, and
+# nothing in the compose healthcheck reads SQLite - it probes /health and a Redis
+# socket. So a mismatch is invisible: on 03.10 a fleet-wide `chown -R deploy:deploy`
+# left all nine bots unable to open their database while every one of them still
+# reported healthy, and they only broke when a rollout recreated a container. A
+# long-lived process survives on the file descriptor it opened before the change, so
+# the drift check reports OK right up until the moment a deploy makes it permanent.
+# The fix belongs here, before the container is touched: refusing is free, an
+# outage is not.
+DATA_PROBE=/app/data/.rollout-preflight
+data_preflight() {
+  local dir="$COMPOSE_DIR/data" duid cuid
+  if [[ ! -d "$dir" ]]; then
+    echo "missing:$dir"; return 1
+  fi
+  duid=$(stat -c %u "$dir" 2>/dev/null || echo "?")
+  cuid=$(docker inspect -f '{{.Config.User}}' "botkit-$bot" 2>/dev/null || echo "?")
+  if [[ "$(docker inspect -f '{{.State.Running}}' "botkit-$bot" 2>/dev/null)" != "true" ]]; then
+    # Nothing to exec into. Fall back to the ownership comparison so a stopped bot
+    # is not waved through on a check that never ran.
+    if [[ "$duid" == "${cuid%%:*}" ]]; then echo "ok(dir uid=$duid, container down)"; return 0; fi
+    echo "container down and dir uid=$duid != container user=$cuid"; return 1
+  fi
+  if docker exec "botkit-$bot" sh -c "touch $DATA_PROBE && rm -f $DATA_PROBE" 2>/dev/null; then
+    echo "ok(dir uid=$duid, container user=$cuid)"; return 0
+  fi
+  echo "data/ not writable by container user (dir uid=$duid, container user=$cuid)"
+  return 1
+}
+
 SV=$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --services 2>/dev/null | head -1)
 SV="${SV:-bot}"
 TARGET_IMAGE="$REGISTRY/botkit-$bot:$IMG"
@@ -104,6 +136,7 @@ echo "  target  : $TARGET_IMAGE"
 echo "  service : $SV (compose $COMPOSE_FILE)"
 
 if [[ "$DRY" == 1 ]]; then
+  echo "  (--dry-run) preflight: data/ writable by container user -> $(data_preflight || echo FAILED)"
   echo "  (--dry-run) plan: pull $TARGET_IMAGE -> override $OVERRIDE_FILE -> up -d --no-deps -> health x$HEALTH_TRIES on 127.0.0.1:$PORT -> metrics>=28 -> rollback to $CUR_IMAGE on failure"
   exit 0
 fi
@@ -155,7 +188,20 @@ OVERRIDE
   fi
 }
 
-log "bot=$bot pulling $TARGET_IMAGE ..."
+# Refuse before the container is touched. Rolling forward onto a data directory the
+  # runtime user cannot write produces a container that answers /health 200 and cannot
+  # open its database - the exact state the 03.10 drill walked into. A stopped rollout
+  # costs one timer cycle; the alternative costs the bot.
+  if ! PF=$(data_preflight); then
+    log "bot=$bot DATA PREFLIGHT FAILED: $PF"
+    send_alert critical "data preflight failed for $bot ($PF) - rollout refused, container untouched"
+    echo "  -> REFUSED: $PF"
+    echo "  -> fix: chown -R 1001:1001 $COMPOSE_DIR/data"
+    exit 6
+  fi
+  log "bot=$bot preflight ok ($PF)"
+
+  log "bot=$bot pulling $TARGET_IMAGE ..."
 if ! docker pull "$TARGET_IMAGE"; then
   log "bot=$bot WARN pull failed: $TARGET_IMAGE (container untouched)"
   echo "  -> pull failed, container untouched"; exit 3

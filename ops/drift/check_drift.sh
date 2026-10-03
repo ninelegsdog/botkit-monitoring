@@ -155,6 +155,24 @@ for entry in $BOTS; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL:$port/health") || code=000
   [ "$code" = "200" ] || critical+=("/health=$code")
 
+  # --- data layer: can the runtime user actually open its SQLite file? (CRITICAL) ---
+  # compose pins user: "1001:1001" and bind-mounts ../data into /app/data, while the
+  # host directory keeps whatever owner it happens to have. The compose healthcheck
+  # probes /health and a Redis socket - it never reads SQLite - so a mismatch is
+  # invisible from the outside: on 03.10 a fleet-wide `chown -R deploy:deploy` left all
+  # nine bots unable to open their database and every one still reported healthy. Worse,
+  # a long-lived process keeps working on the descriptor it opened before the change, so
+  # the damage stays latent until a rollout recreates the container and the app dies on
+  # "unable to open database file". The only honest signal is to ask the container
+  # itself, as the user it actually runs as.
+  if [ "$running" = "true" ]; then
+    if ! docker exec "$ctr" sh -c 'touch /app/data/.driftprobe && rm -f /app/data/.driftprobe' 2>/dev/null; then
+      duid=$(stat -c %u "$d/data" 2>/dev/null || echo "?")
+      cuid=$(docker inspect -f '{{.Config.User}}' "$ctr" 2>/dev/null || echo "?")
+      critical+=("data/ not writable by container user (dir uid=$duid, container user=$cuid)")
+    fi
+  fi
+
   # --- compose validation (CRITICAL) ---
   if [ -f "$VALIDATOR" ] && [ -f "$d/deploy/compose.yml" ]; then
     if ! python3 "$VALIDATOR" "$d/deploy/compose.yml" --bot="$bot" >/dev/null 2>>"$LOG"; then
