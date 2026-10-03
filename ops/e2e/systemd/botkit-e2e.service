@@ -11,8 +11,20 @@ Type=oneshot
 # shell, so a compromised test run cannot reach the fleet or the deploy keys.
 User=botkit-e2e
 Group=botkit-e2e
-WorkingDirectory=/opt/botkit-e2e
+WorkingDirectory=/opt/botkit-e2e/ops/e2e
+# The e2e package lives in ops/e2e/e2e, not at the repository root, and it is not
+# installed into the venv: no .pth, no egg-link, pyproject declares no packaging.
+# With the repository root as the working directory the unit died on
+# "No module named 'e2e'" before touching a single bot, so the first live run would
+# have failed for a reason that has nothing to do with Telegram. SETUP_GUIDE.md already
+# says to run from ops/e2e; this unit contradicted its own guide. Found by importing
+# the module from both directories, not by reading the unit.
 EnvironmentFile=/etc/botkit-e2e/e2e.env
+# The session is an account credential. Without a umask the runner created it 0644 -
+# world-readable on a host that also runs a deploy user - while the login script is
+# careful to install the same file 0600. Nothing else this unit writes needs to be
+# readable by another user.
+UMask=0077
 ExecStart=/opt/botkit-e2e/venv/bin/python -m e2e.run_e2e
 
 # The session is an account credential, so the runner may write nothing else.
