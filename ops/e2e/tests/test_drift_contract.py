@@ -319,6 +319,20 @@ def test_unhealthy_fleet_is_reported(sandbox: Sandbox) -> None:
     assert "/health=000" in sandbox.log_text(), sandbox.log_text()
 
 
+def test_unreachable_port_reports_one_code_not_two(sandbox: Sandbox) -> None:
+    """curl prints its own 000 on a connection failure.
+
+    With "|| echo 000" appended the fallback arrived on top of curl's output and the alert
+    read "/health=000000", which looks like a status nobody sent.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}", STUB_HEALTH="000")
+
+    log = sandbox.log_text()
+    assert "/health=000000" not in log, f"the health code was doubled: {log}"
+    assert "/health=000 " in log or log.rstrip().endswith("/health=000") or "/health=000)" in log, log
+
+
 def _arm_warning(sandbox: Sandbox, image: str) -> None:
     """Run until a warning alert is actually posted, so its throttle key exists.
 

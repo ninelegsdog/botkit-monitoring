@@ -149,7 +149,10 @@ for entry in $BOTS; do
   # comes out as http://127.0.0.18081/health, curl answers 000, and a perfectly healthy
   # fleet reports nine criticals. The drift check had never been run against this fleet.env,
   # which is why nobody saw it: the copy on the host hardcoded the address instead.
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL:$port/health" || echo 000)
+  # curl already prints its own 000 when it cannot connect. With "|| echo 000" appended the
+  # failure arrived twice and the alert read "/health=000000", which looks like a status
+  # nobody sent. Assign the fallback instead of concatenating it.
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL:$port/health") || code=000
   [ "$code" = "200" ] || critical+=("/health=$code")
 
   # --- compose validation (CRITICAL) ---
