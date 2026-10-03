@@ -50,11 +50,24 @@ d="$DEPLOY/$bot"
 [ -d "$d" ] || { echo "ABORT: нет каталога бота: $d"; exit 1; }
 
 compose_files=(-f "$d/deploy/compose.yml")
-[ -f "$OVERRIDE_DIR/$name.yml" ] && compose_files+=(-f "$OVERRIDE_DIR/$name.yml")
 envf="$ENV_ROOT/$name.env"
 [ -f "$envf" ] || { echo "ABORT: нет env-файла: $envf"; exit 1; }
 
-DC=(docker compose --env-file "$envf" "${compose_files[@]}}")
+# The image comes from IMAGE_TAG in the env file, the same single source deploy_rollout.sh
+# writes. This used to append $OVERRIDE_DIR/$name.yml when it existed, which was two ways
+# to pin an image and therefore two ways to disagree; the generated override outlived the
+# rollout that wrote it, because the rollback path never removed it.
+if [ -f "$OVERRIDE_DIR/$name.yml" ]; then
+  echo "WARN: найден устаревший override $OVERRIDE_DIR/$name.yml - игнорируется."
+  echo "      Образ берётся из IMAGE_TAG в $envf. Удалите override, если он больше не нужен."
+fi
+
+# The trailing brace here was a typo for "]" and it was invisible until an override was
+# present: "${arr[@]}}" concatenates the last element with a literal brace, so compose
+# received "support.yml}" as a filename and refused to start. Restoring a database is what
+# this script is for, and the failure mode was "restore does not work" on exactly the bots
+# that had a leftover file.
+DC=(docker compose --env-file "$envf" "${compose_files[@]}")
 SV="$("${DC[@]}" config --services 2>/dev/null | head -1)"
 SV="${SV:-bot}"
 

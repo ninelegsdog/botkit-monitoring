@@ -322,4 +322,11 @@ def test_rollout_does_not_gate_the_rollback() -> None:
         f"{source.count('data_preflight')} references; if the rollback is now gated, that "
         "is the wrong fix"
     )
-    assert 'apply_image "$CUR_IMAGE"' in source, "the rollback no longer reapplies the old image"
+    # The rollback does not re-apply an image reference any more: it restores the tag that
+    # was recorded in the env file. What has to survive is that the rollback still exists
+    # and still reaches compose, otherwise a failed rollout would have nowhere to go back to.
+    assert 'set_image_tag "$PREV_TAG"' in source, (
+        "the rollback no longer restores the previously recorded tag"
+    )
+    rollback = source[source.index('if [[ "$HEALTH_RESULT" != "ok" ]]; then') :]
+    assert "compose_up" in rollback, "the rollback never reaches compose, so it rolls nowhere"

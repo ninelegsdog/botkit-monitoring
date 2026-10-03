@@ -2,7 +2,10 @@
 # deploy_rollout.sh — health-gated single-bot rollout with automatic rollback
 # Usage: deploy_rollout.sh <bot> [image:tag] [--dry-run] [--failpoint=health]
 #   <bot>            bookingbot|delivery|docuflow|leadgen|membership|pricesentry|reminder|store|support
-#   image:tag        default "main"  (e.g. "v0.8.0-abc123" or digest)
+#   image:tag        REQUIRED. e.g. "v0.8.2-abc123". There is no default on purpose: this
+#                    used to fall back to "main", a moving tag with no health gate behind
+#                    it, so forgetting the argument deployed whatever main pointed at. If
+#                    you really want main, pass main - explicitly, where it is a choice.
 #   --dry-run        print plan, touch nothing
 #   --failpoint=health  force a simulated health failure to drill the rollback path (no alert)
 # Runs on the prod VPS as root. Log: /var/log/botkit-rollout.log
@@ -66,10 +69,15 @@ for a in "$@"; do
   esac
 done
 if [ -z "$bot" ]; then
-  echo "usage: $0 <bot> [image:tag] [--dry-run] [--failpoint=health]" >&2
+  echo "usage: $0 <bot> <image:tag> [--dry-run] [--failpoint=health]" >&2
   exit 2
 fi
-IMG="${IMG:-main}"
+if [[ -z "$IMG" ]]; then
+  echo "usage: $0 <bot> <image:tag> [--dry-run] [--failpoint=health]" >&2
+  echo "note: image:tag is required. There is no default - a rollout to a moving tag is" >&2
+  echo "      not a rollout. check_updates.sh always passes <channel>-<sha7>." >&2
+  exit 2
+fi
 
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 log() { echo "$(now) $*" | tee -a "$LOG" >&2; }
@@ -137,7 +145,8 @@ echo "  service : $SV (compose $COMPOSE_FILE)"
 
 if [[ "$DRY" == 1 ]]; then
   echo "  (--dry-run) preflight: data/ writable by container user -> $(data_preflight || echo FAILED)"
-  echo "  (--dry-run) plan: pull $TARGET_IMAGE -> override $OVERRIDE_FILE -> up -d --no-deps -> health x$HEALTH_TRIES on 127.0.0.1:$PORT -> metrics>=28 -> rollback to $CUR_IMAGE on failure"
+  echo "  (--dry-run) image pin: IMAGE_TAG=$IMG -> $ENV_FILE (currently IMAGE_TAG=$(read_image_tag || echo none))"
+  echo "  (--dry-run) plan: pull $TARGET_IMAGE -> IMAGE_TAG=$IMG in env -> up -d --no-deps -> health x$HEALTH_TRIES on 127.0.0.1:$PORT -> metrics>=28 -> rollback to $CUR_IMAGE on failure"
   exit 0
 fi
 
@@ -173,19 +182,49 @@ send_alert() {
     && log "bot=$bot alert sent ($sev)" || log "bot=$bot WARN alert send failed"
 }
 
-apply_image() {
-  local image="$1"
-  if [[ -n "$image" ]]; then
-    cat > "$OVERRIDE_FILE" <<OVERRIDE
-services:
-  ${SV}:
-    image: ${image}
-OVERRIDE
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" up -d --no-deps
-  else
-    rm -f "$OVERRIDE_FILE"
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
+# The image lives in exactly one place: IMAGE_TAG in the bot's env file, which compose
+# already reads through --env-file. It used to live in a second place - a generated
+# override in $OVERRIDE_DIR - and the two disagreed. Three things followed from that, all
+# observed on the live fleet on 03.10:
+#
+#   * a manual `docker compose up -d` resolved IMAGE_TAG to nothing and fell back to
+#     `:main`, silently replacing a health-gated pinned deployment with a moving tag;
+#   * the override was never removed on the rollback path, so it outlived the rollout and
+#     leaked into the next `compose up`;
+#   * restore_bot.sh appends that override when it exists, and a stray brace in the array
+#     it builds turned the filename into `over.yml}` - so a leftover override did not just
+#     mislead, it broke the restore path.
+#
+# Two sources of truth is the defect, not the override itself. The env file is the one
+# compose reads anyway, it survives a reboot, and it is the file an operator's command
+# already points at. A tag that is only in a generated file is a tag nobody can see.
+set_image_tag() {
+  local tag="$1" tmp
+  # The tag is interpolated into sed and into a KEY=VALUE line, so refuse anything that
+  # could carry a newline or a sed metacharacter instead of quoting our way around it.
+  if [[ ! "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._:@-]*$ ]]; then
+    log "bot=$bot REFUSING tag with unexpected characters: $tag"
+    return 1
   fi
+  tmp=$(mktemp "${ENV_FILE}.XXXXXX") || return 1
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+  if grep -q '^IMAGE_TAG=' "$ENV_FILE"; then
+    sed "s|^IMAGE_TAG=.*|IMAGE_TAG=$tag|" "$ENV_FILE" >"$tmp" || { rm -f "$tmp"; return 1; }
+  else
+    { cat "$ENV_FILE"; printf 'IMAGE_TAG=%s\n' "$tag"; } >"$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  # Copy back rather than mv: mv from a temp file replaces the inode, and the env file's
+  # mode and owner are load-bearing - it holds REDIS credentials and is read with --env-file.
+  cat "$tmp" >"$ENV_FILE" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}
+
+read_image_tag() {
+  sed -n 's/^IMAGE_TAG=//p' "$ENV_FILE" 2>/dev/null | tail -1
+}
+
+compose_up() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
 }
 
 # Refuse before the container is touched. Rolling forward onto a data directory the
@@ -210,7 +249,28 @@ DIGEST=$(docker image inspect -f '{{index .RepoDigests 0}}' "$TARGET_IMAGE" 2>/d
 log "bot=$bot pulled digest=$DIGEST"
 
 log "bot=$bot deploying $TARGET_IMAGE ..."
-apply_image "$TARGET_IMAGE"
+# PREV_TAG is read before anything is written, so the rollback restores the state the bot
+# was actually in rather than a value guessed from the container's image reference - which
+# breaks on a digest-pinned deployment, where there is no tag to parse out of it.
+PREV_TAG=$(read_image_tag)
+if [[ -z "$PREV_TAG" ]]; then
+  # First rollout after the move off overrides: derive the tag from what is running so a
+  # rollback has something to go back to.
+  PREV_TAG="${CUR_IMAGE##*:}"
+  [[ "$PREV_TAG" != "$CUR_IMAGE" ]] || PREV_TAG=""
+fi
+if ! set_image_tag "$IMG"; then
+  log "bot=$bot CRITICAL could not write IMAGE_TAG=$IMG into $ENV_FILE"
+  send_alert critical "cannot pin IMAGE_TAG for $bot in $ENV_FILE - container untouched"
+  echo "  -> REFUSED: env file not writable, container untouched"
+  exit 7
+fi
+if [[ -f "$OVERRIDE_FILE" ]]; then
+  # Left over from a rollout that predates the env-file pin. It would silently win over
+  # IMAGE_TAG on any compose run that includes it, including restore_bot.sh's.
+  rm -f "$OVERRIDE_FILE" && log "bot=$bot removed stale override $OVERRIDE_FILE"
+fi
+compose_up
 
 HEALTH_RESULT="ok"
 if [[ "$FAILPOINT" == "health" ]]; then
@@ -236,25 +296,30 @@ if [[ "$HEALTH_RESULT" == "ok" ]]; then
 fi
 
 if [[ "$HEALTH_RESULT" != "ok" ]]; then
-  log "bot=$bot HEALTH FAIL -> rollback to $CUR_IMAGE"
-  if ! apply_image "$CUR_IMAGE"; then
+  log "bot=$bot HEALTH FAIL -> rollback to tag ${PREV_TAG:-<none>}"
+  if [[ -z "$PREV_TAG" ]]; then
+    log "bot=$bot CRITICAL no previous IMAGE_TAG to roll back to"
+    send_alert critical "rollback impossible for $bot - no IMAGE_TAG recorded, image $CUR_IMAGE still running"
+    echo "  -> CRITICAL: cannot roll back, no previous tag recorded"; exit 4
+  fi
+  if ! set_image_tag "$PREV_TAG" || ! compose_up; then
     log "bot=$bot CRITICAL rollback compose step failed"
-    send_alert critical "rollback failed for $bot (image $CUR_IMAGE)"
+    send_alert critical "rollback failed for $bot (tag $PREV_TAG)"
     exit 4
   fi
   sleep "$HEALTH_WAIT"
   RB=$(health_check)
   log "bot=$bot after-rollback health=$RB"
   if [[ "$RB" == "ok" ]]; then
-    send_alert warning "rollback OK: $bot reverted to $CUR_IMAGE"
-    echo "  -> ROLLBACK done, health restored ($CUR_IMAGE)"
-    printf '%s|%s|%s|%s\n' "$bot" "$CUR_IMAGE" "$DIGEST" "$(now)" >> "$STATE_FILE"
+    send_alert warning "rollback OK: $bot reverted to $PREV_TAG"
+    echo "  -> ROLLBACK done, health restored ($PREV_TAG)"
+    printf '%s|%s|%s|%s\n' "$bot" "$REGISTRY/botkit-$bot:$PREV_TAG" "$DIGEST" "$(now)" >> "$STATE_FILE"
     exit 0
   fi
-  send_alert critical "bot DOWN after rollback: $bot ($CUR_IMAGE)"
+  send_alert critical "bot DOWN after rollback: $bot ($PREV_TAG)"
   echo "  -> CRITICAL: bot down after rollback"; exit 5
 fi
 
 printf '%s|%s|%s|%s\n' "$bot" "$TARGET_IMAGE" "$DIGEST" "$(now)" >> "$STATE_FILE"
-log "bot=$bot rollout OK -> $TARGET_IMAGE"
+log "bot=$bot rollout OK -> $TARGET_IMAGE (IMAGE_TAG pinned in $ENV_FILE)"
 echo "  -> OK: $bot now on $TARGET_IMAGE (digest $DIGEST)"
