@@ -5,5 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/botkit-drift/otlp-e2e.sh
+# Same reasoning as botkit-drift.service: the copy in /opt/botkit-drift was installed by
+# hand and had fallen behind canon (a6511b7e against d36e67fc). It kept working only because
+# it predates the fleet.sh refactor and hardcodes the collector and Tempo URLs - so it looked
+# healthy while the file on disk was a fork nobody tracked. The canon script resolves
+# ../lib/fleet.sh relative to itself, which only works from inside the repository.
+ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/drift/otlp-e2e.sh
 TimeoutStartSec=120
