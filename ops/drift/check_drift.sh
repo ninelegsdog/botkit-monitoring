@@ -18,7 +18,11 @@ set -uo pipefail
 
 DEPLOY_ROOT=/home/deploy
 ENV_ROOT=/usr/local/etc/botkit
-VALIDATOR=/opt/botkit-drift/validate_compose.py
+# Resolved relative to this file rather than pinned to /opt/botkit-drift. The pinned path
+# pointed at a hand-installed copy that was byte-identical to this repository's file - which
+# is one deploy away from diverging, with nothing watching it. Same reasoning as the unit's
+# ExecStart: the file that runs should be the file that is in version control.
+VALIDATOR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/validate_compose.py"
 CHANNEL=""
 CONF=/opt/botkit-rollout/version.conf
 # The rollout marker is optional and its path is a variable, so shellcheck cannot
