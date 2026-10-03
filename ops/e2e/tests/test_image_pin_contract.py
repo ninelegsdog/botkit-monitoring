@@ -147,6 +147,30 @@ def test_the_generated_override_is_gone(rollout: str) -> None:
     assert "removed stale override" in block, "removing a stale override is not logged"
 
 
+def test_dry_run_only_calls_functions_that_exist_by_then(rollout: str) -> None:
+    """The dry-run block runs before the deploy flow, so anything it calls must be defined
+    above it.
+
+    This is not hypothetical: `read_image_tag` was defined below the dry-run, so the one
+    command documented as safe to run printed `read_image_tag: command not found` and then
+    reported the current pin as `none` - a dry run that confidently misreports the state it
+    exists to show. Asserting that the dry-run *mentions* IMAGE_TAG was not enough; it says
+    nothing about whether the name resolves when the block executes.
+    """
+    dry_at = rollout.index('if [[ "$DRY" == 1 ]]; then')
+    dry = _body(rollout, 'if [[ "$DRY" == 1 ]]; then', "exit 0")
+    called = set(re.findall(r"\$\((\w+)", dry))
+    called |= set(re.findall(r"^(\w+)\(.*?\)", dry, re.M))
+    assert called, "the dry run calls nothing, so this test proves nothing"
+    for name in sorted(called):
+        definition = rollout.find(f"{name}() {{")
+        assert definition != -1, f"the dry run calls {name}(), which is never defined"
+        assert definition < dry_at, (
+            f"the dry run calls {name}() but it is defined further down the file, so the "
+            "command printed 'command not found' while claiming to report the current state"
+        )
+
+
 def test_dry_run_reports_both_preflights(rollout: str) -> None:
     """A dry run that hides what it would change is worse than no dry run."""
     dry = _body(rollout, 'if [[ "$DRY" == 1 ]]; then', "exit 0")

@@ -112,6 +112,50 @@ fi
 # the drift check reports OK right up until the moment a deploy makes it permanent.
 # The fix belongs here, before the container is touched: refusing is free, an
 # outage is not.
+# The image lives in exactly one place: IMAGE_TAG in the bot's env file, which compose
+# already reads through --env-file. It used to live in a second place - a generated
+# override in $OVERRIDE_DIR - and the two disagreed. Three things followed from that, all
+# observed on the live fleet on 03.10:
+#
+#   * a manual `docker compose up -d` resolved IMAGE_TAG to nothing and fell back to
+#     `:main`, silently replacing a health-gated pinned deployment with a moving tag;
+#   * the override was never removed on the rollback path, so it outlived the rollout and
+#     leaked into the next `compose up`;
+#   * restore_bot.sh appends that override when it exists, and a stray brace in the array
+#     it builds turned the filename into `over.yml}` - so a leftover override did not just
+#     mislead, it broke the restore path.
+#
+# Two sources of truth is the defect, not the override itself. The env file is the one
+# compose reads anyway, it survives a reboot, and it is the file an operator's command
+# already points at. A tag that is only in a generated file is a tag nobody can see.
+set_image_tag() {
+  local tag="$1" tmp
+  # The tag is interpolated into sed and into a KEY=VALUE line, so refuse anything that
+  # could carry a newline or a sed metacharacter instead of quoting our way around it.
+  if [[ ! "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._:@-]*$ ]]; then
+    log "bot=$bot REFUSING tag with unexpected characters: $tag"
+    return 1
+  fi
+  tmp=$(mktemp "${ENV_FILE}.XXXXXX") || return 1
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+  if grep -q '^IMAGE_TAG=' "$ENV_FILE"; then
+    sed "s|^IMAGE_TAG=.*|IMAGE_TAG=$tag|" "$ENV_FILE" >"$tmp" || { rm -f "$tmp"; return 1; }
+  else
+    { cat "$ENV_FILE"; printf 'IMAGE_TAG=%s\n' "$tag"; } >"$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  # Copy back rather than mv: mv from a temp file replaces the inode, and the env file's
+  # mode and owner are load-bearing - it holds REDIS credentials and is read with --env-file.
+  cat "$tmp" >"$ENV_FILE" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}
+
+read_image_tag() {
+  sed -n 's/^IMAGE_TAG=//p' "$ENV_FILE" 2>/dev/null | tail -1
+}
+
+compose_up() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
+
 DATA_PROBE=/app/data/.rollout-preflight
 data_preflight() {
   local dir="$COMPOSE_DIR/data" duid cuid
@@ -182,49 +226,6 @@ send_alert() {
     && log "bot=$bot alert sent ($sev)" || log "bot=$bot WARN alert send failed"
 }
 
-# The image lives in exactly one place: IMAGE_TAG in the bot's env file, which compose
-# already reads through --env-file. It used to live in a second place - a generated
-# override in $OVERRIDE_DIR - and the two disagreed. Three things followed from that, all
-# observed on the live fleet on 03.10:
-#
-#   * a manual `docker compose up -d` resolved IMAGE_TAG to nothing and fell back to
-#     `:main`, silently replacing a health-gated pinned deployment with a moving tag;
-#   * the override was never removed on the rollback path, so it outlived the rollout and
-#     leaked into the next `compose up`;
-#   * restore_bot.sh appends that override when it exists, and a stray brace in the array
-#     it builds turned the filename into `over.yml}` - so a leftover override did not just
-#     mislead, it broke the restore path.
-#
-# Two sources of truth is the defect, not the override itself. The env file is the one
-# compose reads anyway, it survives a reboot, and it is the file an operator's command
-# already points at. A tag that is only in a generated file is a tag nobody can see.
-set_image_tag() {
-  local tag="$1" tmp
-  # The tag is interpolated into sed and into a KEY=VALUE line, so refuse anything that
-  # could carry a newline or a sed metacharacter instead of quoting our way around it.
-  if [[ ! "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._:@-]*$ ]]; then
-    log "bot=$bot REFUSING tag with unexpected characters: $tag"
-    return 1
-  fi
-  tmp=$(mktemp "${ENV_FILE}.XXXXXX") || return 1
-  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
-  if grep -q '^IMAGE_TAG=' "$ENV_FILE"; then
-    sed "s|^IMAGE_TAG=.*|IMAGE_TAG=$tag|" "$ENV_FILE" >"$tmp" || { rm -f "$tmp"; return 1; }
-  else
-    { cat "$ENV_FILE"; printf 'IMAGE_TAG=%s\n' "$tag"; } >"$tmp" || { rm -f "$tmp"; return 1; }
-  fi
-  # Copy back rather than mv: mv from a temp file replaces the inode, and the env file's
-  # mode and owner are load-bearing - it holds REDIS credentials and is read with --env-file.
-  cat "$tmp" >"$ENV_FILE" || { rm -f "$tmp"; return 1; }
-  rm -f "$tmp"
-}
-
-read_image_tag() {
-  sed -n 's/^IMAGE_TAG=//p' "$ENV_FILE" 2>/dev/null | tail -1
-}
-
-compose_up() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
 }
 
 # Refuse before the container is touched. Rolling forward onto a data directory the
