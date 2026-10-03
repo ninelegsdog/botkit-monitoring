@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# smoke.sh — прогон deploy_rollout.sh в режиме --dry-run до того, как таймер сможет
+# дотянуться до живого бота.
+#
+# Зачем. deploy_rollout.sh — самый опасный скрипт на хосте: он пересоздаёт контейнеры. И он
+# запускается без присмотра, по таймеру, раз в 15 минут. 03.10 это стоило простоя одного
+# бота и ещё одного, который едва не упал.
+#
+# Проверка синтаксиса тут не помогает. Bash определяет функцию в момент ВЫПОЛНЕНИЯ строки
+# определения, поэтому функция внутри тела другой функции не существует как функция, и
+# `bash -n` такой файл считает корректным. Так и вышло: потерянная скобка у compose_up()
+# втянула в себя data_preflight, send_alert и весь блок --dry-run. Скрипт остался
+# синтаксически валидным, все 216 тестов проходили, и обнаружил это только запуск на живом
+# хосте: `send_alert: command not found` при «чистой» префлайт-проверке.
+#
+# Этот скрипт ловит именно такую поломку, потому что действительно выполняет раскатку - но
+# в режиме, который ничего не меняет. Контейнер не трогается: --dry-run выходит до mkdir и
+# до docker pull.
+set -uo pipefail
+
+HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROLLOUT="$HERE/deploy_rollout.sh"
+LOG=/var/log/botkit-rollout.log
+
+# Любой бот подходит: --dry-run доходит только до префлайтов и плана. Берём первый из
+# карты в самом deploy_rollout.sh, чтобы не тащить сюда ещё один список ботов.
+BOT=$(grep -oE '^\s*\[[a-z]+\]=' "$ROLLOUT" | head -1 | tr -d '[]=')
+
+if [[ -z "$BOT" ]]; then
+  echo "smoke: FATAL cannot read the bot map out of $ROLLOUT" >&2
+  exit 1
+fi
+
+# Тег берём у фактически работающего контейнера: он заведомо существует, и это ровно тот
+# случай, который раскатка будет повторять.
+TAG=$(grep -oE '^[A-Z0-9_]*IMAGE_TAG=' /dev/null 2>/dev/null; \
+      docker inspect -f '{{.Config.Image}}' "botkit-$BOT" 2>/dev/null | sed "s|.*:||")
+if [[ -z "$TAG" ]]; then
+  echo "smoke: SKIP cannot read the running image of botkit-$BOT" >&2
+  exit 0
+fi
+
+out=$(/usr/bin/bash "$ROLLOUT" "$BOT" "$TAG" --dry-run 2>&1)
+rc=$?
+
+# Скрипт, который печатает ошибку bash, не работает - даже если он печатает её вместе с
+# правдоподобным планом раскатки.
+if grep -qE 'command not found|unbound variable|syntax error|: line [0-9]+:' <<<"$out"; then
+  {
+    echo "smoke: FATAL $ROLLOUT is broken - it reported an error while planning"
+    echo "$out" | sed 's/^/  /'
+    echo "smoke: refusing to let the timer use it"
+  } | tee -a "$LOG" >&2
+  exit 1
+fi
+
+if [[ "$rc" -ne 0 ]]; then
+  {
+    echo "smoke: FAIL $ROLLOUT --dry-run exited $rc for $BOT:$TAG"
+    echo "$out" | sed 's/^/  /'
+  } | tee -a "$LOG" >&2
+  exit 1
+fi
+
+echo "smoke: ok $ROLLOUT plans $BOT:$TAG without touching anything" | tee -a "$LOG"

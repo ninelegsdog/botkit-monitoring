@@ -13,6 +13,12 @@ Type=oneshot
 #
 # bash is named explicitly: repository files are not marked executable, and check_updates.sh
 # resolves deploy_rollout.sh from its own directory - which only works from inside the repo.
+# Runs before the poller, not after: deploy_rollout.sh recreates containers unattended, so a
+# structurally broken one must stop the unit before check_updates.sh can pick a tag up and
+# hand it over. `bash -n` cannot catch this class - a function defined inside another
+# function's body is valid syntax and does not exist at run time - which is how a misplaced
+# brace passed the whole test suite and surfaced on the live host during the 03.10 session.
+ExecStartPre=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/smoke.sh
 ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/check_updates.sh
 TimeoutStartSec=1800
 # The job's whole purpose is `docker pull` followed by `docker compose up`, as root. That

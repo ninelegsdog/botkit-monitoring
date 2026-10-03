@@ -33,6 +33,8 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[3]
 ROLLOUT_SH = REPO / "ops" / "rollout" / "deploy_rollout.sh"
 RESTORE_SH = REPO / "ops" / "backup" / "restore_bot.sh"
+SMOKE_SH = REPO / "ops" / "rollout" / "smoke.sh"
+UNIT = REPO / "ops" / "rollout" / "systemd" / "botkit-rollout-check.service"
 
 BOT = "docuflow"
 
@@ -169,6 +171,33 @@ def test_dry_run_only_calls_functions_that_exist_by_then(rollout: str) -> None:
             f"the dry run calls {name}() but it is defined further down the file, so the "
             "command printed 'command not found' while claiming to report the current state"
         )
+
+
+def test_the_rollout_script_is_smoke_tested_before_the_timer_uses_it() -> None:
+    """A structural check cannot stand in for running the script.
+
+    `bash -n` accepts a file in which a function is defined inside another function's body,
+    because there is nothing syntactically wrong with it - the function simply does not
+    exist when the call executes. A misplaced brace did exactly that on 03.10: 216 tests
+    passed and the defect appeared only when `--dry-run` on the live host printed
+    `send_alert: command not found` next to a clean preflight report.
+
+    So the guard has to execute the script, and it has to do that *before* the poller can
+    hand it a tag to deploy. That is what ExecStartPre is for.
+    """
+    unit = UNIT.read_text()
+    assert "ExecStartPre=" in unit, "the rollout unit runs deploy_rollout.sh with no smoke check"
+    pre = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
+    assert any("smoke.sh" in line for line in pre), f"ExecStartPre does not run smoke.sh: {pre}"
+    smoke = SMOKE_SH.read_text()
+    assert "--dry-run" in smoke, "the smoke check must not run a real rollout"
+    for needle in ("command not found", "unbound variable"):
+        assert needle in smoke, (
+            f"the smoke check does not look for '{needle}', which is how a broken script "
+            "reports itself"
+        )
+    # The check has to actually look at the output, not just run the script.
+    assert "grep -qE" in smoke, "the smoke check runs the script but never inspects what it said"
 
 
 def test_dry_run_reports_both_preflights(rollout: str) -> None:

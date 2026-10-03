@@ -112,22 +112,6 @@ fi
 # the drift check reports OK right up until the moment a deploy makes it permanent.
 # The fix belongs here, before the container is touched: refusing is free, an
 # outage is not.
-# The image lives in exactly one place: IMAGE_TAG in the bot's env file, which compose
-# already reads through --env-file. It used to live in a second place - a generated
-# override in $OVERRIDE_DIR - and the two disagreed. Three things followed from that, all
-# observed on the live fleet on 03.10:
-#
-#   * a manual `docker compose up -d` resolved IMAGE_TAG to nothing and fell back to
-#     `:main`, silently replacing a health-gated pinned deployment with a moving tag;
-#   * the override was never removed on the rollback path, so it outlived the rollout and
-#     leaked into the next `compose up`;
-#   * restore_bot.sh appends that override when it exists, and a stray brace in the array
-#     it builds turned the filename into `over.yml}` - so a leftover override did not just
-#     mislead, it broke the restore path.
-#
-# Two sources of truth is the defect, not the override itself. The env file is the one
-# compose reads anyway, it survives a reboot, and it is the file an operator's command
-# already points at. A tag that is only in a generated file is a tag nobody can see.
 set_image_tag() {
   local tag="$1" tmp
   # The tag is interpolated into sed and into a KEY=VALUE line, so refuse anything that
@@ -155,6 +139,7 @@ read_image_tag() {
 
 compose_up() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
+}
 
 DATA_PROBE=/app/data/.rollout-preflight
 data_preflight() {
@@ -226,7 +211,24 @@ send_alert() {
     && log "bot=$bot alert sent ($sev)" || log "bot=$bot WARN alert send failed"
 }
 
-}
+# The image lives in exactly one place: IMAGE_TAG in the bot's env file, which compose
+# already reads through --env-file. It used to live in a second place - a generated
+# override in $OVERRIDE_DIR - and the two disagreed. Three things followed from that, all
+# observed on the live fleet on 03.10:
+#
+#   * a manual `docker compose up -d` resolved IMAGE_TAG to nothing and fell back to
+#     `:main`, silently replacing a health-gated pinned deployment with a moving tag;
+#   * the override was never removed on the rollback path, so it outlived the rollout and
+#     leaked into the next `compose up`;
+#   * restore_bot.sh appends that override when it exists, and a stray brace in the array
+#     it builds turned the filename into `over.yml}` - so a leftover override did not just
+#     mislead, it broke the restore path.
+#
+# Two sources of truth is the defect, not the override itself. The env file is the one
+# compose reads anyway, it survives a reboot, and it is the file an operator's command
+# already points at. A tag that is only in a generated file is a tag nobody can see.
+
+
 
 # Refuse before the container is touched. Rolling forward onto a data directory the
   # runtime user cannot write produces a container that answers /health 200 and cannot
