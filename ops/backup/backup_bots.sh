@@ -66,8 +66,18 @@ ls -1t "$REDIS_DIR/backups"/redis.rdb.* 2>/dev/null | tail -n +$((KEEP+1)) | xar
 # --- per-bot sqlite ---
 for d in "$BASE"/botkit-*/; do
   bot=$(basename "$d")
-  [ "$bot" = "botkit-monitoring" ] && continue
-  [ "$bot" = "botkit-shared-redis" ] && continue
+  # The name is not a safe test for "is this a bot". botkit-monitoring and
+  # botkit-shared-redis were excluded here by name, and the fleet snapshot
+  # directory /home/deploy/botkit-backups/ matched the same glob: from
+  # 04.10.2026 06:31 it was reported as a failed bot and took the whole
+  # service to exit 1 on every run, while all nine real backups succeeded.
+  # Ask for evidence of a bot instead - its source tree or its database. A
+  # real bot whose database has vanished still has src/, so the "no
+  # data/bot.db" alarm below keeps working for the case it was written for.
+  if [ ! -d "$d/src" ] && [ ! -f "$d/data/bot.db" ]; then
+    echo "skip $bot (not a bot: no src/ and no data/bot.db)"
+    continue
+  fi
   mkdir -p "$d/backups"
   bdb_ok=0
   if [ -f "$d/data/bot.db" ]; then
