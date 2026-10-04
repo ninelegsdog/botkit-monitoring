@@ -258,6 +258,14 @@ def test_the_script_is_exercised_before_the_timer_can_use_it() -> None:
     assert 'eval "$set_image_tag_body' in verify, (
         "the write check no longer calls the function it extracted - it evaluates something else"
     )
+    # Definition and call must be two statements. `eval "$body '$tag'"` parses as a function
+    # definition with an argument hanging off it, which is a syntax error - and the check then
+    # reports every bot as unwritable, blocking the timer on a false alarm about a pin it never
+    # even tried to write. bash -n on verify_rollout.sh does not see it either: the error only
+    # appears at eval time.
+    assert 'eval "$set_image_tag_body" || ! set_image_tag "$current"' in verify, (
+        "the extracted function is no longer defined and then called as two statements"
+    )
     assert "IMAGE_TAG changed from" in verify, (
         "the write check does not assert the file came back unchanged, so it could rewrite the "
         "pin while claiming to only prove writability"

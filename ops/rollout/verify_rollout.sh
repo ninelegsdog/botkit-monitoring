@@ -109,8 +109,13 @@ for bot in $BOTS; do
   # The function is eval'd rather than sourced: sourcing deploy_rollout.sh runs its top level, and
   # the --dry-run branch calls `exit`, which would take this script down with it. shellcheck cannot
   # see into the eval either, hence the disable on both counts.
+  #
+  # Definition and call are separate statements on purpose. `eval "$body '$tag'"` is a definition
+  # with an argument attached, which is a syntax error - and a check that fails for a syntactic
+  # reason on every bot is a check that would have blocked the timer indefinitely while telling
+  # the operator the pin was unwritable, which is not what was wrong.
   # shellcheck disable=SC1090
-  if ! eval "$set_image_tag_body '$current'"; then
+  if ! eval "$set_image_tag_body" || ! set_image_tag "$current"; then
     {
       echo "verify: FATAL $bot: set_image_tag cannot write $envf (IMAGE_TAG=$current)"
       echo "         the rollout would abort before recreating the container, for every bot"
