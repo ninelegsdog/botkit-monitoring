@@ -67,6 +67,12 @@ class _FakeClient:
         self.disconnected = False
         self.sign_in_calls: list[dict] = []
         self.code_requested = None
+        self.code_requests = 0
+        # How many password attempts get rejected before one is accepted. telethon re-reads the
+        # hash on every sign_in(password=...) call, so a wrong one is free to retry - the test
+        # double has to be able to model that, and the 04.10 defect was that nothing did.
+        self.passwords_accepted_at = 1
+        self._password_attempts = 0
         self.connect_error: Exception | None = None
 
     async def connect(self):
@@ -79,6 +85,7 @@ class _FakeClient:
 
     async def send_code_request(self, phone):
         self.code_requested = phone
+        self.code_requests += 1
 
     async def sign_in(self, **kw):
         self.sign_in_calls.append(kw)
@@ -96,6 +103,10 @@ class _FakeClient:
             # Telethon raises this from sign_in when the account has 2FA and no
             # password was supplied.
             raise client_module.SessionPasswordNeededError(request=None)
+        if "password" in kw:
+            self._password_attempts += 1
+            if self._password_attempts < self.passwords_accepted_at:
+                raise client_module.PasswordHashInvalidError(request=None)
         self._authorized = True
 
     async def disconnect(self):
@@ -281,6 +292,83 @@ def test_two_factor_password_is_not_echoed(monkeypatch):
     t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
     asyncio.run(t.connect())
     assert "2FA" in seen.get("prompt", "")
+
+
+def test_a_rejected_2fa_password_can_be_retyped_without_a_new_code(monkeypatch):
+    """The defect that ended a real login on 04.10.
+
+    Telegram's own mail said it plainly: the code had been entered correctly and the password
+    was wrong. The password was asked for once and the exception was not caught, so
+    PasswordHashInvalidError ended the run - taking the accepted code with it. The loop around
+    this call treats every failure as "request a new code", so the operator would also have been
+    told to wait for an SMS that was never needed.
+
+    sign_in(password=...) re-reads the account's password hash on every call and never touches
+    the sign-in code, so retrying costs nothing. This pins that property: one code request,
+    several password attempts, login completes.
+    """
+    answers = iter(["wrong-one", "wrong-two", "right-one"])
+    monkeypatch.setattr(client_module.getpass, "getpass", lambda *_: next(answers))
+    _stub_code(monkeypatch)
+    client = _FakeClient(authorized=False, two_factor=True)
+    client.passwords_accepted_at = 3  # reject the first two password attempts
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+
+    asyncio.run(t.connect())
+
+    assert client.code_requested == "+10000000000", "the code must not be re-requested"
+    assert client.code_requests == 1, (
+        f"a wrong cloud password must not cost another SMS: {client.code_requests} requests"
+    )
+    passwords = [c["password"] for c in client.sign_in_calls if "password" in c]
+    assert passwords == ["wrong-one", "wrong-two", "right-one"], passwords
+
+
+def test_a_rejected_2fa_password_says_so_instead_of_raising_a_bare_rpc_error(monkeypatch):
+    """Three wrong passwords end the login with a sentence an operator can act on.
+
+    PasswordHashInvalidError carries the text "The password (and thus its hash value) you
+    entered is invalid" - true, and useless at 4am: it does not say that the code was fine, that
+    no new one is needed, or that the expected value is the account's Two-Step Verification
+    password rather than the SMS code.
+    """
+    monkeypatch.setattr(client_module.getpass, "getpass", lambda *_: "still-wrong")
+    _stub_code(monkeypatch)
+    client = _FakeClient(authorized=False, two_factor=True)
+    client.passwords_accepted_at = 99  # never accept
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(t.connect())
+
+    message = str(excinfo.value)
+    assert "not a code problem" in message, message
+    assert "Two-Step" in message, message
+
+
+def test_the_2fa_prompt_names_the_thing_being_asked_for(monkeypatch):
+    """Three candidates get confused constantly, and Telegram rejects all of them alike.
+
+    The SMS code is the number that just arrived, the account password is what registered the
+    account, and the cloud password is set in Settings -> Privacy -> Two-Step Verification. The
+    prompt says which one it wants, because "invalid" does not distinguish them.
+    """
+    seen = {}
+
+    def fake_getpass(prompt):
+        seen["prompt"] = prompt
+        return "s3cret"
+
+    monkeypatch.setattr(client_module.getpass, "getpass", fake_getpass)
+    _stub_code(monkeypatch)
+    client = _FakeClient(authorized=False, two_factor=True)
+    t = _tester_with(client)
+    t.settings = Settings(api_id=1, api_hash="h", phone="+10000000000")
+    asyncio.run(t.connect())
+
+    assert "not the SMS code" in seen.get("prompt", ""), seen.get("prompt")
 
 
 def test_sign_in_without_two_factor_asks_only_once(monkeypatch):

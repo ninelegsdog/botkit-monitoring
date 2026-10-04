@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import getpass
+import sys
 from typing import TYPE_CHECKING, Any
 
 from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import PasswordHashInvalidError, SessionPasswordNeededError
 
 if TYPE_CHECKING:
     from e2e.config import Settings
@@ -129,14 +130,65 @@ class TelegramTester:
             # account has 2FA. The old handler sat around send_code_request and was
             # marked no-cover, which is why nothing noticed: the exception never went
             # there.
-            #
-            # Telethon's own flow retries sign_in with the password alone, relying on the
-            # code hash it kept from the first attempt. getpass rather than input so the
-            # second factor is not echoed.
-            await self.client.sign_in(password=getpass.getpass("2FA password: "))
+            await self._enter_second_factor()
         if not await self.client.is_user_authorized():
             msg = "sign-in completed without producing an authorized session"
             raise RuntimeError(msg)
+
+    async def _enter_second_factor(self, attempts: int = 3) -> None:
+        """Enter the cloud password, and let a wrong one be corrected in place.
+
+        Why this is a loop and not a single call. sign_in(password=...) re-reads the
+        account's password hash with GetPasswordRequest on every invocation and never
+        touches the sign-in code - the code was already accepted, which is why
+        SessionPasswordNeededError was raised at all. So a rejected password consumes
+        nothing: there is no code to re-request, no SMS to wait for, and no throttling to
+        sit through. Retrying is free.
+
+        What it used to do instead: the call was made once, uncaught, so
+        PasswordHashInvalidError escaped the login entirely. One typo in the second
+        factor ended the run, voided the code the operator had just entered correctly,
+        and charged them a minute of Telegram throttling for the next one - which is how
+        a five-character mistyped password cost a real login on 04.10. Worse, the code
+        prompt's own retry loop treats every failure as "ask for a new code", so even a
+        message that mentioned the password would have driven the operator to wait for
+        an SMS that was never needed.
+
+        The prompt says where the password comes from, because the three candidates are
+        routinely confused and Telegram only answers "invalid" to all of them: it is the
+        cloud two-step password from Settings -> Privacy -> Two-Step Verification. It is
+        not the SMS code, not the account login password, and it is case-sensitive.
+        """
+        for attempt in range(1, attempts + 1):
+            password = getpass.getpass("2FA password (cloud password, not the SMS code): ")
+            try:
+                await self.client.sign_in(password=password)
+                return
+            except SessionPasswordNeededError:
+                # Telegram can still ask for the password after a partial exchange; treat
+                # it as another wrong attempt rather than as a signal to give up.
+                reason = "the account asked for the second factor again"
+            except PasswordHashInvalidError:
+                reason = "Telegram rejected it as invalid"
+            print(
+                f"  2FA attempt {attempt} of {attempts} failed: {reason}.",
+                file=sys.stderr,
+                flush=True,
+            )
+            if attempt < attempts:
+                print(
+                    "  Nothing is consumed by a wrong password - the code is still"
+                    " good. Type it again, or check Settings -> Privacy ->"
+                    " Two-Step Verification on the account for the cloud password.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        msg = (
+            f"the cloud two-step password was rejected {attempts} times. The sign-in code was"
+            " accepted, so this is not a code problem: check the account's Two-Step"
+            " Verification password (case-sensitive, not the SMS code)."
+        )
+        raise RuntimeError(msg)
 
     async def disconnect(self) -> None:
         await self.client.disconnect()
