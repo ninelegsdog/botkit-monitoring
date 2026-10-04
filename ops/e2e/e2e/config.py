@@ -30,6 +30,10 @@ class Settings:
     # Deliberate opt-in for runs nobody intends to act on. Off by default,
     # because a green result that cannot page anyone is not a test result.
     allow_no_alert: bool = False
+    # Page the owner through the E2E session's own Saved Messages. Alertmanager
+    # only listens on the prod loopback and prod forbids TCP forwarding, so
+    # there is no route from this host to it; the session needs no bot token.
+    alert_telegram: bool = True
     timeout: int = 30
     device_model: str = "botkit-e2e"
     system_version: str = "Linux"
@@ -87,6 +91,8 @@ def load_settings() -> Settings:
         scenarios_file=os.environ.get("E2E_SCENARIOS", "scenarios.yml"),
         alert_url=os.environ.get("E2E_ALERT_URL", ""),
         allow_no_alert=os.environ.get("E2E_ALLOW_NO_ALERT", "").strip().lower()
+        in ("1", "true", "yes", "on"),
+        alert_telegram=os.environ.get("E2E_ALERT_TELEGRAM", "1").strip().lower()
         in ("1", "true", "yes", "on"),
         proxy=os.environ.get("E2E_PROXY", ""),
         timeout=_int_env("E2E_TIMEOUT", 30),

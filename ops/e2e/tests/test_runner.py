@@ -184,6 +184,7 @@ def test_main_refuses_to_run_without_alert_transport(monkeypatch, tmp_path):
     """A pass nobody would be paged about must not be reportable as a pass."""
     settings = _settings(tmp_path)
     settings.alert_url = ""
+    settings.alert_telegram = False
     settings.allow_no_alert = False
     monkeypatch.setattr(run_e2e, "load_settings", lambda: settings)
     monkeypatch.setattr(run_e2e, "load_scenarios", lambda *a, **k: {})
@@ -201,6 +202,7 @@ def test_main_runs_when_running_unactioned_is_deliberate(monkeypatch, tmp_path, 
     """The escape hatch works, and says out loud that nobody will be paged."""
     settings = _settings(tmp_path)
     settings.alert_url = ""
+    settings.alert_telegram = False
     settings.allow_no_alert = True
     monkeypatch.setattr(run_e2e, "load_settings", lambda: settings)
     monkeypatch.setattr(run_e2e, "load_scenarios", lambda *a, **k: {})
@@ -219,3 +221,68 @@ def test_exit_codes_do_not_collide():
     """1 must stay "the fleet failed"; 2 is new and must not shadow it."""
     assert run_e2e.EXIT_TESTS_FAILED == 1
     assert run_e2e.EXIT_NO_ALERT_TRANSPORT == 2
+
+
+class _FakeClient:
+    def __init__(self, fail=False):
+        self.sent = []
+        self.fail = fail
+
+    async def send_message(self, peer, text):
+        if self.fail:
+            raise RuntimeError("telegram unreachable")
+        self.sent.append((peer, text))
+
+
+class _FakeTester:
+    def __init__(self, fail=False):
+        self.client = _FakeClient(fail)
+
+
+def test_notify_saved_messages_targets_me_and_names_the_bot(tmp_path):
+    """The alert must land in the owner's own Saved Messages, not to a stranger."""
+    settings = _settings(tmp_path)
+    settings.alert_telegram = True
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    tester = _FakeTester()
+    assert asyncio.run(run_e2e.notify_saved_messages(tester, settings, "botkit-x", "boom")) is True
+    peer, text = tester.client.sent[0]
+    assert peer == "me"
+    assert "botkit-x" in text
+    assert "boom" in text
+
+
+def test_notify_failure_is_reported_not_raised(tmp_path, capsys):
+    """A broken page must not crash the run or hide the verdict behind a traceback."""
+    settings = _settings(tmp_path)
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    ok = asyncio.run(run_e2e.notify_saved_messages(_FakeTester(fail=True), settings, "botkit-x", "boom"))
+    assert ok is False
+    assert "WARN" in capsys.readouterr().out
+
+
+def test_each_channel_keeps_its_own_throttle(tmp_path):
+    """A delivered Alertmanager post must not silence the Telegram page for an hour."""
+    settings = _settings(tmp_path)
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    run_e2e._mark_alerted(settings, "botkit-x", "am")
+    assert run_e2e._alert_throttled(settings, "botkit-x", "am") is True
+    assert run_e2e._alert_throttled(settings, "botkit-x", "tg") is False
+
+
+def test_alert_on_failure_names_only_the_channels_that_delivered(tmp_path):
+    settings = _settings(tmp_path)
+    settings.alert_url = ""
+    settings.alert_telegram = True
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    got = asyncio.run(run_e2e.alert_on_failure(_FakeTester(), settings, "botkit-x", "boom"))
+    assert got == "telegram"
+
+
+def test_alert_on_failure_says_NONE_when_every_channel_is_off(tmp_path):
+    settings = _settings(tmp_path)
+    settings.alert_url = ""
+    settings.alert_telegram = False
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    got = asyncio.run(run_e2e.alert_on_failure(_FakeTester(), settings, "botkit-x", "boom"))
+    assert got == "NONE"
