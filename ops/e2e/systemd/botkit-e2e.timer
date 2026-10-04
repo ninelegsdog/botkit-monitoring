@@ -2,10 +2,15 @@
 Description=Botkit E2E every 6 hours
 
 [Timer]
-# Strategy B: one message per bot per run, so a 6h cadence keeps the account
-# volume at 36 messages a day. RandomizedDelaySec keeps nine runs from looking
-# like a machine. Strategy C (a disposable account) and D (alert proof without
-# Telegram) are owner decisions and do not change this file.
+# Strategy B: few messages per run, so the account volume stays low. Counted
+  # from the scenarios rather than estimated: 9 bots x 1 scenario x 2 steps = 18
+  # outgoing /start per run, 4 runs a day = 72 to the bots, plus 1 heartbeat per
+  # run = 4 more to Saved Messages. Total 76 outgoing messages a day.
+# RandomizedDelaySec keeps nine runs from looking like a machine, and its 30m
+  # jitter is why the external watchdog allows 8h of silence (E2E_WATCHDOG_MAX_GAP_MIN)
+  # against a 6h interval: the widest real gap is ~6.5h.
+# Strategy C (a disposable account) and D (alert proof without Telegram) are
+  # owner decisions and do not change this file.
 OnCalendar=*-*-* 00/6:17
 RandomizedDelaySec=30m
 Persistent=true
