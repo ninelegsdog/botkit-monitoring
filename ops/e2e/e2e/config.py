@@ -27,6 +27,9 @@ class Settings:
     session_name: str = "botkit-e2e"
     scenarios_file: str = "scenarios.yml"
     alert_url: str = ""
+    # Deliberate opt-in for runs nobody intends to act on. Off by default,
+    # because a green result that cannot page anyone is not a test result.
+    allow_no_alert: bool = False
     timeout: int = 30
     device_model: str = "botkit-e2e"
     system_version: str = "Linux"
@@ -83,6 +86,8 @@ def load_settings() -> Settings:
         session_name=os.environ.get("E2E_SESSION_NAME", "botkit-e2e"),
         scenarios_file=os.environ.get("E2E_SCENARIOS", "scenarios.yml"),
         alert_url=os.environ.get("E2E_ALERT_URL", ""),
+        allow_no_alert=os.environ.get("E2E_ALLOW_NO_ALERT", "").strip().lower()
+        in ("1", "true", "yes", "on"),
         proxy=os.environ.get("E2E_PROXY", ""),
         timeout=_int_env("E2E_TIMEOUT", 30),
         device_model=os.environ.get("E2E_DEVICE_MODEL", "botkit-e2e"),

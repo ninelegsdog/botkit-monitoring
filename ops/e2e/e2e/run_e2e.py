@@ -14,6 +14,10 @@ ALERT_THROTTLE_S = 3600  # не чаще 1 алерта на бота за 1ч
 ALERT_DESCRIPTION_LIMIT = 200
 HTTP_OK = 200
 HTTP_MULTI_STATUS = 300
+# Distinct codes on purpose: an operator reading the journal or `systemctl`
+# has to be able to tell "the fleet failed" from "the tests never ran".
+EXIT_TESTS_FAILED = 1
+EXIT_NO_ALERT_TRANSPORT = 2
 
 
 def post_alert(url: str, payload: list[dict], timeout: int = 5) -> bool:
@@ -99,9 +103,24 @@ async def run_all(scenarios, settings: Settings) -> int:
 
 def main() -> None:
     settings = load_settings()
+    if not settings.alert_url:
+        if not settings.allow_no_alert:
+            print(
+                "FATAL no alert transport: E2E_ALERT_URL is empty, so a failure\n"
+                "would page nobody and a pass would prove nothing. Refusing to\n"
+                "run. Set E2E_ALERT_URL, or set E2E_ALLOW_NO_ALERT=1 to run\n"
+                "deliberately unactioned.",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_NO_ALERT_TRANSPORT)
+        print(
+            "WARNING E2E_ALLOW_NO_ALERT=1 with E2E_ALERT_URL empty: "
+            "failures will not page anyone.",
+            file=sys.stderr,
+        )
     scenarios = load_scenarios(settings.scenarios_file)
     problems = asyncio.run(run_all(scenarios, settings))
-    sys.exit(1 if problems else 0)
+    sys.exit(EXIT_TESTS_FAILED if problems else 0)
 
 
 if __name__ == "__main__":

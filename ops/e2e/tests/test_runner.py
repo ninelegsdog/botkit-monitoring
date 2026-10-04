@@ -1,6 +1,8 @@
 import asyncio
 from typing import ClassVar
 
+import pytest
+
 from e2e import run_e2e
 from e2e.config import Settings
 
@@ -177,3 +179,43 @@ def test_alert_payload_carries_bot_and_reason():
     assert labels["severity"] == "warning"
     assert labels["bot"] == "botkit-x"
     assert payload[0]["annotations"]["description"] == "boom"
+
+def test_main_refuses_to_run_without_alert_transport(monkeypatch, tmp_path):
+    """A pass nobody would be paged about must not be reportable as a pass."""
+    settings = _settings(tmp_path)
+    settings.alert_url = ""
+    settings.allow_no_alert = False
+    monkeypatch.setattr(run_e2e, "load_settings", lambda: settings)
+    monkeypatch.setattr(run_e2e, "load_scenarios", lambda *a, **k: {})
+
+    async def must_not_run(*a, **k):
+        raise AssertionError("run_all must not be reached without an alert path")
+
+    monkeypatch.setattr(run_e2e, "run_all", must_not_run)
+    with pytest.raises(SystemExit) as exc:
+        run_e2e.main()
+    assert exc.value.code == run_e2e.EXIT_NO_ALERT_TRANSPORT
+
+
+def test_main_runs_when_running_unactioned_is_deliberate(monkeypatch, tmp_path, capsys):
+    """The escape hatch works, and says out loud that nobody will be paged."""
+    settings = _settings(tmp_path)
+    settings.alert_url = ""
+    settings.allow_no_alert = True
+    monkeypatch.setattr(run_e2e, "load_settings", lambda: settings)
+    monkeypatch.setattr(run_e2e, "load_scenarios", lambda *a, **k: {})
+
+    async def fake_run_all(scenarios, s):
+        return 0
+
+    monkeypatch.setattr(run_e2e, "run_all", fake_run_all)
+    with pytest.raises(SystemExit) as exc:
+        run_e2e.main()
+    assert exc.value.code == 0
+    assert "E2E_ALLOW_NO_ALERT" in capsys.readouterr().err
+
+
+def test_exit_codes_do_not_collide():
+    """1 must stay "the fleet failed"; 2 is new and must not shadow it."""
+    assert run_e2e.EXIT_TESTS_FAILED == 1
+    assert run_e2e.EXIT_NO_ALERT_TRANSPORT == 2
