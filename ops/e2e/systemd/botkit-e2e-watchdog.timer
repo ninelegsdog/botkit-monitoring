@@ -1,0 +1,16 @@
+[Unit]
+Description=Check the E2E runner heartbeat every 30 minutes
+
+[Timer]
+# Four times faster than the 6h E2E timer it guards, so a dead runner is caught
+# long before a second cycle passes. Two knobs, do not confuse them: the
+# staleness threshold (E2E_WATCHDOG_MAX_GAP_MIN, 8h) decides what counts as
+# dead, this cadence only decides how soon after that we notice.
+# Monotonic on purpose - unlike the E2E timer there is nothing to align to
+# midnight and nothing to catch up on after a reboot.
+OnBootSec=5min
+OnUnitActiveSec=30min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

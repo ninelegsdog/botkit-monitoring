@@ -38,6 +38,12 @@ class Settings:
     # own, so without this a runner that died mid-run and a healthy fleet would
     # look identical from the outside - silence would mean nothing.
     watchdog: bool = True
+    # How long a completed run may stay silent before the external watchdog
+    # calls the runner dead. Must exceed the E2E timer's interval (6h) plus its
+    # jitter (up to 30m) plus the run itself, or the watchdog reports outages
+    # that are nothing but the schedule. Detection latency after that is the
+    # watchdog timer's cadence, not this number.
+    watchdog_max_gap_min: int = 480
     timeout: int = 30
     device_model: str = "botkit-e2e"
     system_version: str = "Linux"
@@ -100,6 +106,7 @@ def load_settings() -> Settings:
         in ("1", "true", "yes", "on"),
         watchdog=os.environ.get("E2E_WATCHDOG", "1").strip().lower()
         in ("1", "true", "yes", "on"),
+        watchdog_max_gap_min=int(os.environ.get("E2E_WATCHDOG_MAX_GAP_MIN", "480")),
         proxy=os.environ.get("E2E_PROXY", ""),
         timeout=_int_env("E2E_TIMEOUT", 30),
         device_model=os.environ.get("E2E_DEVICE_MODEL", "botkit-e2e"),

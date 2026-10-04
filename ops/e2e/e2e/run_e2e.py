@@ -9,6 +9,7 @@ import urllib.request
 
 from e2e.client import TelegramTester
 from e2e.config import Settings, load_bots, load_scenarios, load_settings
+from e2e.heartbeat import mark_run_end
 
 ALERT_THROTTLE_S = 3600  # не чаще 1 алерта на бота за 1ч
 ALERT_DESCRIPTION_LIMIT = 200
@@ -213,6 +214,9 @@ async def run_all(scenarios, settings: Settings) -> int:
                 problems += 1
         if settings.watchdog:
             await notify_run_summary(t, settings, problems, len(scenarios))
+    # Only a run that reached this line counts as proof of life. If the runner
+    # dies above, the heartbeat stays stale and the external watchdog speaks.
+    mark_run_end(settings.status_dir)
     return problems
 
 
