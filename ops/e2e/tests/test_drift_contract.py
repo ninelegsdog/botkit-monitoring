@@ -75,15 +75,22 @@ DOCKER_STUB = """#!/usr/bin/env bash
 # Stand-in for the `docker inspect` calls in check_drift.sh. The script mixes both argument
 # orders - `inspect <ctr> -f <fmt>` for the network list and `inspect -f <fmt> <ctr>` for the
 # state and the image - so the stub reads the format and the container by shape, not position.
-fmt=""; ctr=""
+fmt=""; ctr=""; sub=""
 for arg in "$@"; do
   case "$arg" in
     '{{'*) fmt="$arg" ;;
+    inspect|manifest) [ -z "$sub" ] && sub="$arg" ;;
     -*) ;;
-    inspect) ;;
     *) [ -z "$ctr" ] && ctr="$arg" ;;
   esac
 done
+# `docker manifest inspect` is how the pinned-tag check asks the registry whether a tag was ever
+# published. It needs its own verb here: falling through to the generic branch would make
+# "manifest" the container name and answer 0 for every tag, so a nonexistent tag would look
+# published and the check would be a check that cannot fail.
+if [ "$sub" = "manifest" ]; then
+  exit "${STUB_MANIFEST_OK:-0}"
+fi
 case "$fmt" in
   *NetworkSettings.Networks*) printf '%s\\n' "${STUB_NETWORKS:-{\\"botkit_${ctr#botkit-}\\":{}}}" ;;
   *State.Running*)           printf '%s\\n' "${STUB_RUNNING:-true}" ;;
@@ -134,6 +141,28 @@ def _commit(repo: pathlib.Path, files: dict[str, str], message: str) -> str:
 class Sandbox:
     """A runnable copy of the drift check with stubbed docker, curl and fleet."""
 
+    @property
+    def env_root(self) -> pathlib.Path:
+        """Where the sandbox points ENV_ROOT - the per-bot env files holding IMAGE_TAG."""
+        return self.root / "envroot"
+
+    @staticmethod
+    def tag_for(sha: str) -> str:
+        """A pin is the whole tag, channel prefix included - v0.8.2-<sha>, not <sha>.
+
+        Writing the bare sha is exactly the plausible mistake this check exists to catch, and the
+        check caught me at it: the first version of these fixtures seeded IMAGE_TAG=<sha> and the
+        whole fleet went CRITICAL, correctly, because that is not a tag compose can resolve.
+        """
+        return f"{CHANNEL}-{sha[:7]}"
+
+    def write_pin(self, value: str | None) -> None:
+        """Write the bot's env file. None means the file exists with no IMAGE_TAG key at all."""
+        self.env_root.mkdir(parents=True, exist_ok=True)
+        body = "METRICS_PORT=8081\n" if value is None else f"IMAGE_TAG={value}\n"
+        self.env_root.joinpath(f"{BOT}.env").write_text(body)
+
+
     def __init__(self, root: pathlib.Path) -> None:
         self.root = root
         self.deploy_root = root / "deploy"
@@ -150,6 +179,9 @@ class Sandbox:
             "PATH": f"{stub_bin}:{os.environ['PATH']}",
             "STUB_CURL_LOG": str(self.curl_log),
             "STUB_IMAGE": f"{IMAGE_PREFIX}0000000",
+            # 0 = the tag exists in the registry. Defaulted to "published" so the older tests keep
+            # passing; the one about a nonexistent tag sets it to 1.
+            "STUB_MANIFEST_OK": "0",
             **env,
         }
         return subprocess.run(
@@ -244,6 +276,10 @@ def _seed_clone(box: Sandbox, *, second_commit: dict[str, str]) -> str:
     _git("clone", str(origin), str(clone), cwd=box.root)
     (clone / "deploy").mkdir()
     (clone / "deploy" / "compose.yml").write_text("services: {}\n")
+    # The env file carries IMAGE_TAG, and since 04.10 it is the source of truth for the image, so a
+    # healthy sandbox has to have one. Without this every existing test went CRITICAL on "IMAGE_TAG
+    # not set" - which is the check working, and the sandbox lying about what a healthy fleet is.
+    box.write_pin(box.tag_for(image_sha))
     return image_sha
 
 
@@ -286,6 +322,7 @@ def _seed_with_recipe(box: Sandbox, dockerfile: str, second_commit: dict[str, st
         _git("clean", "-fd", cwd=clone)
     else:
         _git("clone", str(origin), str(clone), cwd=box.root)
+    box.write_pin(box.tag_for(image_sha))
     return image_sha
 
 
@@ -364,6 +401,78 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/pytho
     assert "unbuilt:" in log, f"a missing Dockerfile was treated as nothing to report:\n{log}"
 
 
+def test_the_container_must_match_the_pinned_tag(sandbox: Sandbox) -> None:
+    """The env file is the source of truth, so the container has to agree with it.
+
+    IMAGE_TAG has been the single source of truth for the image since 04.10. Nothing reconciled it
+    against the running container, and I checked that pairing by hand after every command this
+    session - nine times over - because there was no check for it. A hand-edited IMAGE_TAG is the
+    case that matters: compose would keep resolving the new value while the container ran the old
+    image, and the two would disagree silently until the next restart. That happened live on
+    03.10, when a rollout to :main left the file pinned to v0.8.2-84010fa while the container ran
+    :main, and nothing noticed.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    sandbox.write_pin(sandbox.tag_for(image_sha))
+    clean = sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+    assert clean.returncode == 0, (
+        f"a matching pin was not accepted, so the test below proves nothing:\n{sandbox.log_text()}"
+    )
+
+    # Same image, different pin: the file and the container now disagree.
+    sandbox.write_pin("v0.8.2-0000000")
+    result = sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert result.returncode == 1, f"a container running a different tag than the pin was accepted:\n{log}"
+    assert "does not match IMAGE_TAG" in log, f"the mismatch never reached the log:\n{log}"
+
+
+def test_a_missing_pin_is_critical(sandbox: Sandbox) -> None:
+    """No IMAGE_TAG means compose refuses to start the bot at all - a CRITICAL, not a warning."""
+    image_sha = _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    sandbox.write_pin(None)
+    result = sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert result.returncode == 1, f"a bot with no IMAGE_TAG was reported healthy:\n{log}"
+    assert "IMAGE_TAG not set" in log, f"the missing pin never reached the log:\n{log}"
+
+
+def test_a_pin_that_was_never_published_is_reported(sandbox: Sandbox) -> None:
+    """Compose resolves any tag it is given; only the registry knows whether it exists.
+
+    The compose validator checks the form of the reference, so a typo in IMAGE_TAG passes
+    validation, compose starts, and the failure lands on the next `docker pull` instead.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    sandbox.write_pin(sandbox.tag_for(image_sha))
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}", STUB_MANIFEST_OK="1")
+
+    log = sandbox.log_text()
+    assert "not published in" in log, (
+        f"a tag that does not exist in the registry was not reported:\n{log}"
+    )
+
+
+def test_a_digest_reference_is_not_compared_as_if_it_had_a_tag(sandbox: Sandbox) -> None:
+    """`${img##*:}` on a digest reference yields a fragment of the hash, not a tag.
+
+    A digest-pinned deployment would then be reported as disagreeing with a perfectly correct pin,
+    every run, for ever - the same shape of defect as the other hardcoded substitutions in this
+    file: a comparison that fires on everything is not a comparison.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    sandbox.write_pin(sandbox.tag_for(image_sha))
+    digest = f"ghcr.io/ninelegsdog/botkit-{BOT}@sha256:{'a1b2c3d4' * 8}"
+    result = sandbox.run(STUB_IMAGE=digest, STUB_MANIFEST_OK="0")
+
+    log = sandbox.log_text()
+    assert "does not match IMAGE_TAG" not in log, (
+        f"a digest reference was compared as a tag:\n{log}"
+    )
+
+
 def test_the_recipe_is_read_rather_than_a_handwritten_list() -> None:
     """The list must come from the Dockerfile. A hand-maintained one is what broke.
 
@@ -427,6 +536,11 @@ def test_runtime_commit_is_reported_as_unbuilt(sandbox: Sandbox) -> None:
 def test_sha_missing_from_the_clone_is_reported(sandbox: Sandbox) -> None:
     """An unverifiable sha must not read as "nothing to report"."""
     _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    # The pin has to be moved with the image. Since 04.10 the env file is the source of truth, and
+    # a disagreement between it and the container is CRITICAL and stops the run - so a test that
+    # injects a different image without moving the pin would die on that critical before reaching
+    # the branch it is here to observe.
+    sandbox.write_pin("v0.8.2-deadbee")
     sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}deadbee")
 
     assert "not in this clone" in sandbox.log_text(), sandbox.log_text()
@@ -435,6 +549,11 @@ def test_sha_missing_from_the_clone_is_reported(sandbox: Sandbox) -> None:
 def test_unreadable_sha_is_reported(sandbox: Sandbox) -> None:
     """A tag without a channel sha must be visible, not silently skipped."""
     _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    # The pin has to be moved with the image. Since 04.10 the env file is the source of truth, and
+    # a disagreement between it and the container is CRITICAL and stops the run - so a test that
+    # injects a different image without moving the pin would die on that critical before reaching
+    # the branch it is here to observe.
+    sandbox.write_pin("v0.8.2-nonsha")
     sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:v0.8.2-nonsha")
 
     log = sandbox.log_text()
@@ -443,6 +562,11 @@ def test_unreadable_sha_is_reported(sandbox: Sandbox) -> None:
 
 def test_image_off_the_pinned_channel_is_reported(sandbox: Sandbox) -> None:
     _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
+    # The pin has to be moved with the image. Since 04.10 the env file is the source of truth, and
+    # a disagreement between it and the container is CRITICAL and stops the run - so a test that
+    # injects a different image without moving the pin would die on that critical before reaching
+    # the branch it is here to observe.
+    sandbox.write_pin("v0.7.0-abcdef0")
     sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:v0.7.0-abcdef0")
 
     assert "image tag not on channel" in sandbox.log_text(), sandbox.log_text()

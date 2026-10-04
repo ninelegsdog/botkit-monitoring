@@ -201,6 +201,44 @@ for entry in $BOTS; do
     fi
   fi
 
+  # --- pinned tag: does the container match what the env file says, and does that tag exist? ---
+  # IMAGE_TAG is the single source of truth for the image since 04.10: deploy_rollout.sh writes it,
+  # compose reads it through --env-file, and the generated override is gone. Nothing reconciled the
+  # file against the running container, though, and I spent this whole session checking that pairing
+  # by hand on every command - nine times, because there was no check to do it.
+  #
+  # A hand-edited IMAGE_TAG is the failure this catches: compose would keep resolving the new value
+  # while the container ran the old image, and the two would disagree silently until the next
+  # restart. There was a live instance on 03.10 - a rollout to :main left the env file pinned to
+  # v0.8.2-84010fa and the container on :main at the same time, and nothing noticed.
+  pin=$(sed -n 's/^IMAGE_TAG=//p' "$ENV_ROOT/$bot.env" 2>/dev/null | tail -1)
+  # Only a tag-form reference can be compared with a tag. A digest reference (repo@sha256:...)
+  # has no tag, and "${img##*:}" on one yields a fragment of the hash, which would then be
+  # reported as a mismatch against a pin that is perfectly correct.
+  case "$img" in
+    *@*|unknown) img_is_tag=0 ;;
+    *)          img_is_tag=1 ;;
+  esac
+  if [ -z "$pin" ]; then
+    critical+=("IMAGE_TAG not set in $ENV_ROOT/$bot.env - compose will refuse to start it")
+  elif [ "$img_is_tag" = 1 ]; then
+    running_tag="${img##*:}"
+    if [ "$running_tag" != "$pin" ]; then
+      critical+=("image tag $running_tag does not match IMAGE_TAG=$pin in the env file")
+    fi
+    # Existence in the registry, derived from the image the container actually runs rather than
+    # from a registry constant, so it keeps working if the registry is ever changed. The compose
+    # validator checks the *form* of the reference and cannot know whether the tag was ever
+    # published: a typo passes validation and fails at the next `docker pull`, which is the worst
+    # moment to find out. `manifest inspect` does not pull the image.
+    if [ -z "${BOTKIT_SKIP_REGISTRY_CHECK:-}" ]; then
+      repo="${img%:*}"
+      if ! docker manifest inspect "$repo:$pin" >/dev/null 2>&1; then
+        track+=("pinned tag $pin is not published in $repo - compose resolves it, docker pull would fail")
+      fi
+    fi
+  fi
+
   # --- /health (CRITICAL) ---
   # BASE_URL carries no trailing colon in fleet.env, so the separator has to be here.
   # smoke_all.sh has always spelled it "$BASE:$port/health"; without the colon this URL

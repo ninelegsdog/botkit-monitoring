@@ -130,6 +130,11 @@ def _commit(repo: pathlib.Path, files: dict[str, str], message: str) -> str:
 class Sandbox:
     """A runnable copy of the drift check with stubbed docker, curl and fleet."""
 
+    @property
+    def env_root(self) -> pathlib.Path:
+        """Where the sandbox points ENV_ROOT - the per-bot env files holding IMAGE_TAG."""
+        return self.root / "envroot"
+
     def __init__(self, root: pathlib.Path) -> None:
         self.root = root
         self.deploy_root = root / "deploy"
@@ -224,6 +229,10 @@ def _seed_clone(box: Sandbox) -> str:
         },
         "runtime: first build",
     )
+    # IMAGE_TAG too: it is the source of truth for the image, so a sandbox without one is a fleet
+    # whose bots could not start at all, and the drift check is right to call that critical.
+    box.env_root.mkdir(parents=True, exist_ok=True)
+    box.env_root.joinpath(f"{BOT}.env").write_text(f"IMAGE_TAG={CHANNEL}-{image_sha[:7]}\n")
     _commit(work, {DOCS_PATH: "docs\n"}, "docs only")
     _git("remote", "add", "origin", str(origin), cwd=work)
     _git("push", "origin", "main", cwd=work)
