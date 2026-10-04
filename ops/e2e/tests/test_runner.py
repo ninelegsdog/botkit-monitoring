@@ -30,7 +30,11 @@ def _settings(tmp_path):
 
 
 def _patch(monkeypatch, sent):
-    monkeypatch.setattr(run_e2e, "send_alert", lambda s, bot, reason: sent.append(reason) or True)
+    monkeypatch.setattr(
+        run_e2e,
+        "send_alert",
+        lambda s, bot, reason, alertname=None: sent.append(reason) or True,
+    )
 
 
 def test_runner_status(tmp_path, monkeypatch):
@@ -178,7 +182,7 @@ def test_send_alert_without_url_is_loud_and_sends_nothing(tmp_path, monkeypatch,
 def test_alert_payload_carries_bot_and_reason():
     payload = run_e2e.build_alert("botkit-x", "boom")
     labels = payload[0]["labels"]
-    assert labels["alertname"] == "E2ETestFailed"
+    assert labels["alertname"] == run_e2e.UNEXPECTED_REPLY
     assert labels["severity"] == "warning"
     assert labels["bot"] == "botkit-x"
     assert payload[0]["annotations"]["description"] == "boom"
@@ -354,3 +358,66 @@ def test_summary_failure_does_not_raise(tmp_path, capsys):
     ok = asyncio.run(run_e2e.notify_run_summary(_FakeTester(fail=True), settings, 0, 9))
     assert ok is False
     assert "WARN" in capsys.readouterr().out
+
+
+def test_bot_silence_and_runner_break_get_different_alertnames():
+    """R6.3: one shared "E2E failed" cannot tell a dead bot from a dead rig."""
+    quiet = run_e2e.build_alert("botkit-x", "no fresh reply", run_e2e.BOT_NOT_ANSWERING)[0]["labels"]
+    broken = run_e2e.build_alert("botkit-x", "boom", run_e2e.RUNNER_ERROR)[0]["labels"]
+    assert quiet["alertname"] != broken["alertname"]
+    assert quiet["severity"] == "warning"
+    assert broken["severity"] == "critical"
+
+
+class _Boom:
+    """A TelegramTester whose scenario raises whatever we hand it."""
+
+    def __init__(self, exc):
+        self.client = _FakeClient()
+        self.exc = exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return None
+
+    def prime_usernames(self, mapping):
+        pass
+
+    def username_for(self, bot):
+        return f"{bot}_test"
+
+    async def run_scenario(self, u, steps, t):
+        raise self.exc
+
+
+def _first_alert_line(tmp_path, monkeypatch, tester):
+    monkeypatch.setattr(run_e2e, "TelegramTester", lambda s: tester)
+    settings = _settings(tmp_path)
+    settings.watchdog = False
+    settings.alert_telegram = True
+    asyncio.run(run_e2e.run_all({"botkit-x": FAKE_BOT}, settings))
+    return tester.client.sent[0][1].splitlines()[0]
+
+
+def test_timeout_is_classified_as_a_silent_bot(tmp_path, monkeypatch):
+    line = _first_alert_line(tmp_path, monkeypatch, _Boom(TimeoutError("no fresh reply")))
+    assert line == "E2E BotNotAnswering"
+
+
+def test_other_errors_are_classified_as_a_runner_break(tmp_path, monkeypatch):
+    line = _first_alert_line(tmp_path, monkeypatch, _Boom(ValueError("bad session")))
+    assert line == "E2E E2ERunnerError"
+
+
+class _WrongReply(_RecordingTester):
+    """Answers, but with the wrong text - not silence."""
+
+    async def run_scenario(self, u, steps, t):
+        return ["something else entirely"] * len(steps)
+
+
+def test_mismatch_is_classified_as_an_unexpected_reply(tmp_path, monkeypatch):
+    line = _first_alert_line(tmp_path, monkeypatch, _WrongReply())
+    assert line == "E2E UnexpectedReply"

@@ -19,6 +19,15 @@ HTTP_MULTI_STATUS = 300
 EXIT_TESTS_FAILED = 1
 EXIT_NO_ALERT_TRANSPORT = 2
 
+# Failure classes for R6.3. They stay distinct because they demand different
+# responses: a silent bot gets restarted, a broken runner is not a bot problem
+# at all, and a dead runner can only be reported by something outside the runner.
+BOT_NOT_ANSWERING = "BotNotAnswering"
+UNEXPECTED_REPLY = "UnexpectedReply"
+RUNNER_ERROR = "E2ERunnerError"
+WEBHOOK_NOT_DELIVERED = "WebhookNotDelivered"
+TEST_RUNNER_DEAD = "TestRunnerDead"
+
 
 def post_alert(url: str, payload: list[dict], timeout: int = 5) -> bool:
     """POST to Alertmanager. Returns False instead of raising.
@@ -37,16 +46,26 @@ def post_alert(url: str, payload: list[dict], timeout: int = 5) -> bool:
         return HTTP_OK <= resp.status < HTTP_MULTI_STATUS
 
 
-def build_alert(bot: str, reason: str) -> list[dict]:
+def build_alert(bot: str, reason: str, alertname: str = UNEXPECTED_REPLY) -> list[dict]:
+    """One alertname per failure mode.
+
+    A single catch-all "E2E упал" is useless on duty: one silent bot and a
+    broken runner look identical, so the responder cannot tell whether to
+    restart a bot or the test rig.
+    """
+    severity = "critical" if alertname in (RUNNER_ERROR, TEST_RUNNER_DEAD) else "warning"
     return [
         {
             "labels": {
-                "alertname": "E2ETestFailed",
-                "severity": "warning",  # E2: не critical by default
+                "alertname": alertname,
+                "severity": severity,  # E2: не critical by default
                 "bot": bot,
                 "service": "botkit-e2e",
             },
-            "annotations": {"summary": f"E2E fail {bot}", "description": reason[:ALERT_DESCRIPTION_LIMIT]},
+            "annotations": {
+                "summary": f"E2E {alertname} {bot}",
+                "description": reason[:ALERT_DESCRIPTION_LIMIT],
+            },
         }
     ]
 
@@ -70,7 +89,9 @@ def _mark_alerted(settings: Settings, bot: str, channel: str) -> None:
     _alert_marker(settings, bot, channel).write_text(str(time.time()))
 
 
-def send_alert(settings: Settings, bot: str, reason: str) -> bool:
+def send_alert(
+    settings: Settings, bot: str, reason: str, alertname: str = UNEXPECTED_REPLY
+) -> bool:
     """POST to Alertmanager. An unconfigured URL is a loud no-op, not a silent success."""
     if not settings.alert_url:
         print(f"FATAL no E2E_ALERT_URL configured; cannot alert on {bot} failure (fail-loud)")
@@ -78,7 +99,7 @@ def send_alert(settings: Settings, bot: str, reason: str) -> bool:
     if _alert_throttled(settings, bot, "am"):
         return False
     try:
-        ok = post_alert(settings.alert_url, build_alert(bot, reason))
+        ok = post_alert(settings.alert_url, build_alert(bot, reason, alertname))
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         print(f"WARN alert send failed: {exc}")
         return False
@@ -87,7 +108,9 @@ def send_alert(settings: Settings, bot: str, reason: str) -> bool:
     return ok
 
 
-async def notify_saved_messages(tester, settings: Settings, bot: str, reason: str) -> bool:
+async def notify_saved_messages(
+    tester, settings: Settings, bot: str, reason: str, alertname: str = UNEXPECTED_REPLY
+) -> bool:
     """Page the owner through the E2E session's own Saved Messages.
 
     Alertmanager listens only on the prod loopback and prod forbids TCP
@@ -99,7 +122,8 @@ async def notify_saved_messages(tester, settings: Settings, bot: str, reason: st
     if _alert_throttled(settings, bot, "tg"):
         return False
     text = (
-        f"E2E FAIL {bot}\n"
+        f"E2E {alertname}\n"
+        f"bot: {bot}\n"
         f"{reason[:ALERT_DESCRIPTION_LIMIT]}\n"
         "runner: botkit-e2e (channel: Saved Messages)"
     )
@@ -112,12 +136,16 @@ async def notify_saved_messages(tester, settings: Settings, bot: str, reason: st
     return True
 
 
-async def alert_on_failure(tester, settings: Settings, bot: str, reason: str) -> str:
+async def alert_on_failure(
+    tester, settings: Settings, bot: str, reason: str, alertname: str = UNEXPECTED_REPLY
+) -> str:
     """Try every enabled channel; return which ones actually delivered."""
     used = []
-    if settings.alert_url and send_alert(settings, bot, reason):
+    if settings.alert_url and send_alert(settings, bot, reason, alertname):
         used.append("alertmanager")
-    if settings.alert_telegram and await notify_saved_messages(tester, settings, bot, reason):
+    if settings.alert_telegram and await notify_saved_messages(
+        tester, settings, bot, reason, alertname
+    ):
         used.append("telegram")
     return "+".join(used) if used else "NONE"
 
@@ -151,15 +179,26 @@ async def run_all(scenarios, settings: Settings) -> int:
         t.prime_usernames(bots)
         for bot, sc in scenarios.items():
             err = ""
+            # Until proven otherwise a mismatched answer is an unexpected reply;
+            # only an exception can downgrade that to "the bot went quiet".
+            failure = UNEXPECTED_REPLY
             try:
                 username = t.username_for(bot)
                 replies = await t.run_scenario(username, sc.steps, settings.timeout)
                 expected = [s.expect for s in sc.steps]
                 matched = all(exp in rep for exp, rep in zip(expected, replies, strict=False))
                 ok = len(replies) == len(expected) and matched
+            except TimeoutError as e:
+                # Silence from one bot is not the same event as the runner
+                # breaking: the first is a bot problem, the second is ours and
+                # paging a bot for it would send the responder the wrong way.
+                ok = False
+                err = str(e)
+                failure = BOT_NOT_ANSWERING
             except Exception as e:  # a per-bot failure must not abort the fleet
                 ok = False
                 err = str(e)
+                failure = RUNNER_ERROR
             if ok:
                 (settings.status_dir / f"{bot}.ok").write_text("ok")
                 (settings.status_dir / f"{bot}.fail").unlink(missing_ok=True)
@@ -168,8 +207,9 @@ async def run_all(scenarios, settings: Settings) -> int:
             else:
                 (settings.status_dir / f"{bot}.fail").write_text("fail")
                 (settings.status_dir / f"{bot}.ok").unlink(missing_ok=True)
-                sent = await alert_on_failure(t, settings, bot, err or "unexpected reply")
-                print(f"FAIL {bot} ({err or 'unexpected reply'}) alert={sent}")
+                why = err or "unexpected reply"
+                sent = await alert_on_failure(t, settings, bot, why, failure)
+                print(f"FAIL {bot} [{failure}] ({why}) alert={sent}")
                 problems += 1
         if settings.watchdog:
             await notify_run_summary(t, settings, problems, len(scenarios))
