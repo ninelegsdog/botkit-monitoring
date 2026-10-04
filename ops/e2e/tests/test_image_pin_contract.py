@@ -33,7 +33,8 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[3]
 ROLLOUT_SH = REPO / "ops" / "rollout" / "deploy_rollout.sh"
 RESTORE_SH = REPO / "ops" / "backup" / "restore_bot.sh"
-SMOKE_SH = REPO / "ops" / "rollout" / "smoke.sh"
+VERIFY_SH = REPO / "ops" / "rollout" / "verify_rollout.sh"
+CHECK_UPDATES_SH = REPO / "ops" / "rollout" / "check_updates.sh"
 UNIT = REPO / "ops" / "rollout" / "systemd" / "botkit-rollout-check.service"
 
 BOT = "docuflow"
@@ -173,31 +174,169 @@ def test_dry_run_only_calls_functions_that_exist_by_then(rollout: str) -> None:
         )
 
 
-def test_the_rollout_script_is_smoke_tested_before_the_timer_uses_it() -> None:
-    """A structural check cannot stand in for running the script.
+UNIT_PATHS_KEY = "ReadWritePaths="
+
+
+def _unit_paths(unit: str, key: str) -> set[str]:
+    """Every path granted by a `Key=a b c` line."""
+    found: set[str] = set()
+    for line in unit.splitlines():
+        if line.startswith(key):
+            found.update(part for part in line[len(key):].split() if part)
+    return found
+
+
+def _env_dir(rollout: str) -> str:
+    match = re.search(r'ENV_FILE="([^"]+)/\$bot\.env"', rollout)
+    assert match, "cannot find where deploy_rollout.sh keeps the per-bot env file"
+    assert match.group(1).startswith("/"), f"env path is not absolute: {match.group(1)}"
+    return match.group(1)
+
+
+def test_the_rollout_unit_may_write_the_directory_the_pin_lives_in() -> None:
+    """The grant and the code must name the same directory, derived from both, not hardcoded.
+
+    On 03.10 the pin moved into /usr/local/etc/botkit/<bot>.env and that path stayed in the unit's
+    ReadOnlyPaths. Every rollout then aborted after `docker pull` and before touching the
+    container, for all nine bots, and the fleet stopped updating while reporting healthy. The
+    script and the unit each said something reasonable on their own; nobody compared them.
+
+    So this reads the path out of the script and out of the unit and compares, rather than
+    asserting a string that happened to be correct this morning.
+    """
+    env_dir = _env_dir(ROLLOUT_SH.read_text())
+    granted = _unit_paths(UNIT.read_text(), UNIT_PATHS_KEY)
+    assert env_dir in granted, (
+        f"deploy_rollout.sh writes {env_dir} but ReadWritePaths does not grant it: "
+        f"{sorted(granted)}. Every rollout would abort before recreating the container."
+    )
+
+
+def test_the_env_directory_is_not_also_listed_as_read_only() -> None:
+    """Being in both lists works - ReadWritePaths is applied last - and is still a trap.
+
+    The next person to read the file sees a path that is both writable and read-only and has no
+    way to tell which statement is the intent. This test should answer that question.
+    """
+    env_dir = _env_dir(ROLLOUT_SH.read_text())
+    read_only = _unit_paths(UNIT.read_text(), "ReadOnlyPaths=")
+    assert env_dir not in read_only, (
+        f"{env_dir} is in both ReadOnlyPaths and ReadWritePaths. It works today because systemd "
+        "applies the latter last, but the file reads as a contradiction."
+    )
+
+
+def test_the_script_is_exercised_before_the_timer_can_use_it() -> None:
+    """ExecStartPre, and the check has to include the write half.
 
     `bash -n` accepts a file in which a function is defined inside another function's body,
-    because there is nothing syntactically wrong with it - the function simply does not
-    exist when the call executes. A misplaced brace did exactly that on 03.10: 216 tests
-    passed and the defect appeared only when `--dry-run` on the live host printed
-    `send_alert: command not found` next to a clean preflight report.
+    because nothing is syntactically wrong with it: the function simply does not exist when the
+    call executes. A misplaced brace did exactly that on 03.10 and 216 tests passed.
 
-    So the guard has to execute the script, and it has to do that *before* the poller can
-    hand it a tag to deploy. That is what ExecStartPre is for.
+    A dry run was my first answer and it was not enough. It never writes, so it passed cleanly
+    for an hour while every rollout in production failed on the write it never performed.
     """
-    unit = UNIT.read_text()
-    assert "ExecStartPre=" in unit, "the rollout unit runs deploy_rollout.sh with no smoke check"
-    pre = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
-    assert any("smoke.sh" in line for line in pre), f"ExecStartPre does not run smoke.sh: {pre}"
-    smoke = SMOKE_SH.read_text()
-    assert "--dry-run" in smoke, "the smoke check must not run a real rollout"
+    pre = [ln for ln in UNIT.read_text().splitlines() if ln.startswith("ExecStartPre=")]
+    assert any("verify_rollout.sh" in ln for ln in pre), (
+        f"ExecStartPre does not run verify_rollout.sh: {pre}"
+    )
+
+    verify = VERIFY_SH.read_text()
+    assert "--dry-run" in verify, "the structural half of the check is gone"
     for needle in ("command not found", "unbound variable"):
-        assert needle in smoke, (
-            f"the smoke check does not look for '{needle}', which is how a broken script "
-            "reports itself"
-        )
-    # The check has to actually look at the output, not just run the script.
-    assert "grep -qE" in smoke, "the smoke check runs the script but never inspects what it said"
+        assert needle in verify, f"the check no longer looks for '{needle}'"
+
+    # The half that matters: a real write of the real tag, through the real function.
+    assert "set_image_tag_body" in verify, "the write check does not use the rollout's own function"
+    assert "/^set_image_tag() {/,/^}/p" in verify, (
+        "the write check no longer lifts set_image_tag out of the rollout script"
+    )
+    # The extracted body has to be what actually gets called. Asserting that the extraction exists
+    # is not enough: replacing the eval with `eval "true"` leaves every other assertion in this
+    # test passing while the write check quietly stops writing, which is the exact failure it
+    # exists to catch.
+    assert 'eval "$set_image_tag_body' in verify, (
+        "the write check no longer calls the function it extracted - it evaluates something else"
+    )
+    assert "IMAGE_TAG changed from" in verify, (
+        "the write check does not assert the file came back unchanged, so it could rewrite the "
+        "pin while claiming to only prove writability"
+    )
+    assert "cannot have their image pin written" in verify, (
+        "the write check does not fail the unit when a bot cannot be written"
+    )
+
+
+def test_the_environment_is_not_allowed_to_silence_the_check() -> None:
+    """A non-zero exit with no shell error must warn, never block.
+
+    A check that stops the timer because it cannot find a neighbouring directory becomes silent
+    permanent staleness after about a month, and nobody notices. This fleet has already paid for
+    that once.
+    """
+    verify = VERIFY_SH.read_text()
+    assert 'elif [[ "$rc" -ne 0 ]]' in verify, (
+        "the dry-run exit code is no longer distinguished from a shell error"
+    )
+    tail = verify.split('elif [[ "$rc" -ne 0 ]]', 1)[1][:400]
+    assert "broken=1" not in tail, (
+        "an environment-only failure now blocks the timer - see this test's docstring"
+    )
+
+
+def test_the_retry_guard_does_not_hide_the_failure_it_was_meant_to_dampen() -> None:
+    """A bot that cannot be rolled out for 90 minutes is an incident, and the unit must say so.
+
+    The guard existed to stop a failing rollout from being retried every 15 minutes. It worked -
+    and it made the outage invisible: `rc_global` was only set on an actual rollout failure, so
+    the tick after a failure skipped all nine bots and exited 0. The unit was green while the
+    fleet was frozen, for one tick out of every ninety.
+    """
+    source = CHECK_UPDATES_SH.read_text()
+    # Assert on the line itself. Slicing the surrounding block by the next "fi" is wrong: the
+    # comment above this branch contains those letters inside ordinary words, so the block came
+    # back truncated mid-comment - which is how this test could pass against a script that had no
+    # rc_global in the branch at all.
+    line = next((ln for ln in source.splitlines() if "still not rolled out" in ln), None)
+    assert line is not None, "the guard branch no longer says what it is doing"
+    assert "rc_global=1" in line, (
+        "the retry-guard skip sets no failure code, so the unit goes green on exactly the ticks "
+        "that matter most"
+    )
+    assert "attempted_still_recent" in source, "the guard is gone entirely"
+
+
+def test_set_image_tag_touches_nothing_but_the_tag() -> None:
+    """That file holds the Redis credentials. The function rewrites one line and stops."""
+    rollout = ROLLOUT_SH.read_text()
+    body = re.search(r"set_image_tag\(\) \{(.*?)\n\}", rollout, re.S)
+    assert body, "cannot find set_image_tag() in deploy_rollout.sh"
+    text = body.group(1)
+
+    # Two writes into the temp file are legitimate: replace the line, append when the key is
+    # absent. A blanket sed -i, or a third write, would be the failure mode.
+    # The redirect target is >"$tmp" - with the quotes - so counting ">$tmp" matches nothing and
+    # the assertion passes for the wrong reason on a function that writes nothing at all.
+    writes = text.count('>"$tmp"')
+    assert writes == 2, (
+        f"set_image_tag performs {writes} writes into the temp file; expected the replace-line "
+        "and the append-if-absent, nothing else"
+    )
+    assert 'cat "$tmp" >"$ENV_FILE"' in text, (
+        "the env file must be rewritten in place, not replaced by a move - its mode and owner "
+        "are load-bearing and it holds credentials"
+    )
+    assert "sed -i" not in text, "sed -i replaces the file and loses the inode, mode and owner"
+    # Count commands, not the word: the function's own comment explains that the tag is
+    # "interpolated into sed", so a plain text count finds three and reports a false violation.
+    sed_commands = [
+        ln.strip() for ln in text.splitlines() if ln.strip().startswith("sed ")
+    ]
+    assert len(sed_commands) == 1, (
+        f"set_image_tag runs {len(sed_commands)} sed commands, expected exactly one - more than "
+        "one means more than the tag line could be rewritten: "
+        f"{sed_commands}"
+    )
 
 
 def test_dry_run_reports_both_preflights(rollout: str) -> None:

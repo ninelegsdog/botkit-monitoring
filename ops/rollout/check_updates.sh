@@ -111,7 +111,13 @@ for bot in "${BOTS[@]}"; do
   fi
   tag="$CHANNEL-$sha7"
   if attempted_still_recent "$bot" "$tag"; then
-    log "$bot: $tag attempted <${RETRY_MINUTES}m ago — skip (failed rollout guard)"; continue
+    # This used to be a bare `continue`, and that is how a total outage stayed invisible.
+    # rc_global is only set on an actual rollout failure, so the tick after a failure skipped all
+    # nine bots without setting anything and exited 0 - the unit went green while the fleet was
+    # frozen on old images. The failure was visible for exactly one tick out of RETRY_MINUTES, and
+    # on 03.10 that is how a ReadOnlyPaths mistake that stopped every rollout on the host read as
+    # "mostly fine" on a dashboard. A bot stuck for 90 minutes is an incident, not noise.
+    log "$bot: $tag attempted <${RETRY_MINUTES}m ago — still not rolled out (guard)"; rc_global=1; continue
   fi
 
   desired=$(registry_digest "$bot" "$tag")

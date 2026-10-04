@@ -14,18 +14,22 @@ Type=oneshot
 # bash is named explicitly: repository files are not marked executable, and check_updates.sh
 # resolves deploy_rollout.sh from its own directory - which only works from inside the repo.
 # Runs before the poller, not after: deploy_rollout.sh recreates containers unattended, so a
-# structurally broken one must stop the unit before check_updates.sh can pick a tag up and
-# hand it over. `bash -n` cannot catch this class - a function defined inside another
-# function's body is valid syntax and does not exist at run time - which is how a misplaced
-# brace passed the whole test suite and surfaced on the live host during the 03.10 session.
-ExecStartPre=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/smoke.sh
+# broken one must stop the unit before check_updates.sh can pick a tag up and hand it over.
+# Two failure classes, because they hide differently. `bash -n` cannot see a function defined
+# inside another function's body - valid syntax, absent at run time - which is how a misplaced
+# brace passed the whole suite on 03.10. And a dry run cannot see a directory it never writes
+# to, which is how an unwritable /usr/local/etc/botkit passed its dry run cleanly for an hour
+# while every rollout on the host was failing. So this runs the dry run AND rewrites each bot's
+# real image tag with the value it already holds.
+ExecStartPre=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/verify_rollout.sh
 ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/check_updates.sh
 TimeoutStartSec=1800
 # The job's whole purpose is `docker pull` followed by `docker compose up`, as root. That
 # makes root-equivalence unavoidable through the docker socket, so this is defence in depth
 # rather than isolation from root: the daemon's storage and the two state directories are
-# writable, while /etc, /usr and the bot deployments are not. ProtectHome stays off because
-# the maintenance flag is /root/botkit-maintenance.
+# writable, while /etc, /usr and the bot deployments are not - with the deliberate exception of
+# /usr/local/etc/botkit, explained at its ReadWritePaths line. ProtectHome stays off because the
+# maintenance flag is /root/botkit-maintenance.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -38,5 +42,25 @@ LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 UMask=0077
-ReadWritePaths=/var/lib/botkit-rollout /var/log /var/lib/docker
-ReadOnlyPaths=/home/deploy /usr/local/etc/botkit
+# /usr/local/etc/botkit is writable on purpose, and this is the line that has to stay honest.
+# It holds one credential (REDIS_URL) and one piece of deployment state (IMAGE_TAG), and only
+# the second changes on every rollout. On 03.10 this path sat in ReadOnlyPaths instead, and the
+# consequence was silent and total: set_image_tag failed for all nine bots, every rollout aborted
+# after the pull and before touching the container, and the unit went green again 15 minutes
+# later because the retry guard skipped the bots without setting a failure code. The fleet
+# stopped receiving updates and nothing said so.
+#
+# Granting the directory is not the risk it looks like. This unit is already root-equivalent
+# through the docker socket plus a writable /var/lib/docker: code that could write these
+# credentials could equally run `docker run -v /:/host`. ProtectSystem=strict here prevents
+# accidents, not attackers. What actually protects the host is that the unit only executes code
+# from canon, and sync-canon.sh --check-only verifies the checkout against origin.
+#
+# The alternative - keeping IMAGE_TAG in the generated override under /var/lib/botkit-rollout -
+# needs no grant, but it needs a second -f on every compose invocation, and a forgotten -f is
+# exactly what made this incident possible in the first place.
+ReadWritePaths=/var/lib/botkit-rollout /var/log /var/lib/docker /usr/local/etc/botkit
+# /usr/local/etc/botkit used to be listed in ReadOnlyPaths as well. systemd applies ReadWritePaths
+# after ReadOnlyPaths, so it would have won anyway - but a path in both lists reads like a mistake
+# to whoever touches this file next, and that reader cannot tell which one is intended.
+ReadOnlyPaths=/home/deploy
