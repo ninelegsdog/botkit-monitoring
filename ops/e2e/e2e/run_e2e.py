@@ -122,6 +122,27 @@ async def alert_on_failure(tester, settings: Settings, bot: str, reason: str) ->
     return "+".join(used) if used else "NONE"
 
 
+async def notify_run_summary(tester, settings: Settings, problems: int, total: int) -> bool:
+    """Report the run's own outcome. This is the watchdog half of alerting.
+
+    A per-bot failure already pages by itself, so silence used to be ambiguous:
+    a runner that died halfway and a fleet that is perfectly healthy both said
+    nothing. One message per run makes the absence of a message meaningful.
+    """
+    verdict = "all passed" if problems == 0 else f"{problems} of {total} FAILED"
+    text = (
+        f"E2E run finished: {total - problems}/{total} {verdict}\n"
+        "runner: botkit-e2e (channel: Saved Messages)"
+    )
+    try:
+        await tester.client.send_message("me", text)
+    except Exception as exc:  # a missed heartbeat must not rewrite the verdict
+        print(f"WARN run summary not delivered: {exc}")
+        return False
+    print(f"watchdog: summary delivered ({verdict})")
+    return True
+
+
 async def run_all(scenarios, settings: Settings) -> int:
     settings.status_dir.mkdir(parents=True, exist_ok=True)
     bots = load_bots(settings.bots_file)
@@ -150,6 +171,8 @@ async def run_all(scenarios, settings: Settings) -> int:
                 sent = await alert_on_failure(t, settings, bot, err or "unexpected reply")
                 print(f"FAIL {bot} ({err or 'unexpected reply'}) alert={sent}")
                 problems += 1
+        if settings.watchdog:
+            await notify_run_summary(t, settings, problems, len(scenarios))
     return problems
 
 

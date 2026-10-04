@@ -34,6 +34,10 @@ class Settings:
     # only listens on the prod loopback and prod forbids TCP forwarding, so
     # there is no route from this host to it; the session needs no bot token.
     alert_telegram: bool = True
+    # Watchdog: report the run's own outcome too. Per-bot failures page on their
+    # own, so without this a runner that died mid-run and a healthy fleet would
+    # look identical from the outside - silence would mean nothing.
+    watchdog: bool = True
     timeout: int = 30
     device_model: str = "botkit-e2e"
     system_version: str = "Linux"
@@ -93,6 +97,8 @@ def load_settings() -> Settings:
         allow_no_alert=os.environ.get("E2E_ALLOW_NO_ALERT", "").strip().lower()
         in ("1", "true", "yes", "on"),
         alert_telegram=os.environ.get("E2E_ALERT_TELEGRAM", "1").strip().lower()
+        in ("1", "true", "yes", "on"),
+        watchdog=os.environ.get("E2E_WATCHDOG", "1").strip().lower()
         in ("1", "true", "yes", "on"),
         proxy=os.environ.get("E2E_PROXY", ""),
         timeout=_int_env("E2E_TIMEOUT", 30),

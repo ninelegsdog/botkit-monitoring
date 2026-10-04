@@ -23,6 +23,9 @@ def _settings(tmp_path):
         status_dir=tmp_path / "status",
         session_dir=tmp_path / "session",
         alert_url="http://127.0.0.1:9093/api/v2/alerts",
+        # Off by default so tests that are not about the heartbeat stay quiet;
+        # the watchdog tests below switch it back on explicitly.
+        watchdog=False,
     )
 
 
@@ -286,3 +289,68 @@ def test_alert_on_failure_says_NONE_when_every_channel_is_off(tmp_path):
     settings.status_dir.mkdir(parents=True, exist_ok=True)
     got = asyncio.run(run_e2e.alert_on_failure(_FakeTester(), settings, "botkit-x", "boom"))
     assert got == "NONE"
+
+
+class _RecordingTester:
+    """A TelegramTester stand-in that records what the runner tried to send."""
+
+    def __init__(self):
+        self.client = _FakeClient()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return None
+
+    def prime_usernames(self, mapping):
+        self.prime = mapping
+
+    def username_for(self, bot):
+        return self.prime[bot]
+
+    async def run_scenario(self, u, steps, t):
+        return [s.expect for s in steps]
+
+
+def test_run_all_delivers_the_watchdog_heartbeat(tmp_path, monkeypatch):
+    """A finished run must announce itself, or silence proves nothing."""
+    tester = _RecordingTester()
+    monkeypatch.setattr(run_e2e, "TelegramTester", lambda s: tester)
+    settings = _settings(tmp_path)
+    settings.watchdog = True
+    settings.alert_telegram = False
+    asyncio.run(run_e2e.run_all({"botkit-x": FAKE_BOT}, settings))
+    assert len(tester.client.sent) == 1
+    peer, text = tester.client.sent[0]
+    assert peer == "me"
+    assert "1/1" in text
+    assert "all passed" in text
+
+
+def test_run_all_stays_quiet_when_the_watchdog_is_off(tmp_path, monkeypatch):
+    tester = _RecordingTester()
+    monkeypatch.setattr(run_e2e, "TelegramTester", lambda s: tester)
+    settings = _settings(tmp_path)
+    settings.watchdog = False
+    asyncio.run(run_e2e.run_all({"botkit-x": FAKE_BOT}, settings))
+    assert tester.client.sent == []
+
+
+def test_summary_reports_failures_not_just_success(tmp_path):
+    """A heartbeat that only ever says "all good" is decoration, not a watchdog."""
+    settings = _settings(tmp_path)
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    tester = _FakeTester()
+    assert asyncio.run(run_e2e.notify_run_summary(tester, settings, 3, 9)) is True
+    _, text = tester.client.sent[0]
+    assert "6/9" in text
+    assert "3 of 9 FAILED" in text
+
+
+def test_summary_failure_does_not_raise(tmp_path, capsys):
+    """A missed heartbeat must not rewrite the exit code or raise."""
+    settings = _settings(tmp_path)
+    ok = asyncio.run(run_e2e.notify_run_summary(_FakeTester(fail=True), settings, 0, 9))
+    assert ok is False
+    assert "WARN" in capsys.readouterr().out
