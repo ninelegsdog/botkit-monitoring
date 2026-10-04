@@ -49,6 +49,21 @@ def _proxy_tuple(spec: str) -> tuple[str, str, int] | None:
     return kind, host, int(port)
 
 
+# The slowest ThrottlingMiddleware in the fleet discards any message that arrives less
+# than min_interval after the previous one: six bots run min_interval=2.0 (delivery,
+# docuflow, leadgen, pricesentry, store, support) while three run rate_limit=0.5
+# (bookingbot, membership, reminder). A step sent the moment the previous reply landed
+# fell inside that window and the middleware returned None without calling a handler -
+# aiogram still logs "is handled", which is why W18 looked like a /start defect and
+# reported 3/9 with exactly the 2.0-second bots failing.
+#
+# SETTLE_S must exceed the slowest interval with margin. POLL_S is only how often the
+# reply is looked for and must stay well under it, so a reply is caught long before the
+# settle delay ends and the inter-step gap is decided by SETTLE_S, not by a race.
+SETTLE_S = 2.5
+POLL_S = 0.4
+
+
 class TelegramTester:
     """Drives the fleet as a user account.
 
@@ -205,12 +220,14 @@ class TelegramTester:
 
     async def run_scenario(self, username: str, steps: list[Any], timeout: int) -> list[str]:
         out: list[str] = []
-        for st in steps:
+        for i, st in enumerate(steps):
             top = await self.client.get_messages(username, limit=1)
             seen = top[0].id if top else 0
             await self.client.send_message(username, st.send)
             reply, seen = await self._wait_reply(username, timeout, seen)
             out.append(reply)
+            if i < len(steps) - 1:
+                await asyncio.sleep(SETTLE_S)
         return out
 
     async def _wait_reply(self, username: str, timeout: int, after_id: int) -> tuple[str, int]:
@@ -222,6 +239,6 @@ class TelegramTester:
                     continue
                 if not m.out and m.text:
                     return m.text, m.id
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(POLL_S)
         msg = f"no fresh reply from {username}"
         raise TimeoutError(msg)
