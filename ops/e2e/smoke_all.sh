@@ -118,8 +118,30 @@ for entry in $BOTS; do
 
   health=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE:$port/health")
 
-  sleep 2
-  loghit=$(docker logs --since 15s "$ctr" 2>&1 | grep -c "$uid")
+  # Retry instead of a single 2-second sample. The original slept 2s and looked at a 15s window
+  # once, which cannot tell "slow" from "dead". On 03.10 that produced 14 false failures in 48h
+  # across eight bots while every one of them was alive: the rollout timer was pulling nine images
+  # every 15 minutes, the webhook path took longer than 2s to surface a log line, and the check
+  # called it an outage. A check that reports a fleet as dead because the disk is busy trains
+  # people to ignore it.
+  #
+  # What this does and does not prove, since the column is called "loghit" and the service is
+  # called a smoke test. The payload is {"update_id": N} - a shape Telegram never sends - so
+  # aiogram answers "Detected unknown update type" and logs "Update id=N is not handled". loghit>0
+  # therefore means the webhook path is reachable, the secret is accepted and the process writes
+  # logs. It says nothing about whether the bot can talk to Telegram: Dispatcher() is built with
+  # no bot, so the update is routed by token per update and a bot with no session still passes.
+  # Session authorisation needs its own check and is a separate question from this one.
+  # Budget: 3+6+9 = 18s per bot when the bot never answers, nine bots = 162s, against
+  # TimeoutStartSec=180. The happy path is 3s per bot. A fourth attempt would push the run past the
+  # unit's own timeout, so the service would be killed mid-fleet and report nothing - a retry
+  # schedule that cannot finish is worse than no retry.
+  loghit=0
+  for attempt in 1 2 3; do
+    sleep $(( attempt * 3 ))
+    loghit=$(docker logs --since $(( attempt * 15 ))s "$ctr" 2>&1 | grep -c "$uid")
+    [ "$loghit" -gt 0 ] && break
+  done
 
   if docker ps --format '{{.Names}}' | grep -qx "$ctr"; then up="up"; else up="DOWN"; bot_fail=1; fi
 
