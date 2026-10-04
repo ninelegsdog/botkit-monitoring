@@ -212,7 +212,18 @@ def _seed_clone(box: Sandbox) -> str:
     work.mkdir()
     _git("init", "--initial-branch=main", cwd=work)
     _git("init", "--bare", "--initial-branch=main", str(origin), cwd=box.root)
-    image_sha = _commit(work, {"bot.py": "print('v1')\n"}, "runtime: first build")
+    # A Dockerfile, because check_drift.sh now reads the recipe to decide what reaches the image.
+    # A sandbox clone without one is not the fleet, it is the degenerate case where the check
+    # cannot tell and has to assume everything is unbuilt - which is how this very file started
+    # reporting a documentation-only commit as drift.
+    image_sha = _commit(
+        work,
+        {
+            "src/handlers.py": "print('v1')\n",
+            "Dockerfile": "FROM python:3.12-slim\nCOPY pyproject.toml .\nCOPY src/ src/\n",
+        },
+        "runtime: first build",
+    )
     _commit(work, {DOCS_PATH: "docs\n"}, "docs only")
     _git("remote", "add", "origin", str(origin), cwd=work)
     _git("push", "origin", "main", cwd=work)

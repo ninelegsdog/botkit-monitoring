@@ -47,6 +47,21 @@ RUNTIME_PATH = "src/handlers.py"
 DOCS_PATH = "README.md"
 WORKFLOW_PATH = ".github/workflows/deploy.yml"
 
+# Two recipes that genuinely exist in this fleet. Seven bots copy pyproject.toml and src/;
+# botkit-reminder, botkit-membership and botkit-bookingbot copy the whole repository.
+COMPOSE_PATH = "deploy/compose.yml"
+
+DOCKERFILE_SELECTIVE = """FROM python:3.12-slim
+COPY pyproject.toml .
+COPY src/ src/
+"""
+DOCKERFILE_WHOLE_REPO = """FROM python:3.12-slim
+COPY pyproject.toml .
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY . .
+"""
+
+
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "contract",
     "GIT_AUTHOR_EMAIL": "contract@example.invalid",
@@ -210,7 +225,16 @@ def _seed_clone(box: Sandbox, *, second_commit: dict[str, str]) -> str:
     work.mkdir()
     _git("init", "--initial-branch=main", cwd=work)
     _git("init", "--bare", "--initial-branch=main", str(origin), cwd=box.root)
-    image_sha = _commit(work, {"bot.py": "print('v1')\n"}, "runtime: first build")
+    # The clone needs a Dockerfile: the drift check now reads the recipe to decide what reaches
+    # the image, and a sandbox without one is not the fleet - it is the degenerate case the
+    # fallback exists for, where the check has to assume everything is unbuilt. Seeding the same
+    # selective recipe the majority of bots use, with the runtime file under src/ where that
+    # recipe says it belongs.
+    image_sha = _commit(
+        work,
+        {"RUNTIME_PATH": "print('v1')\n", "Dockerfile": DOCKERFILE_SELECTIVE},
+        "runtime: first build",
+    )
     _commit(work, second_commit, "second commit")
     _git("remote", "add", "origin", str(origin), cwd=work)
     _git("push", "origin", "main", cwd=work)
@@ -221,6 +245,137 @@ def _seed_clone(box: Sandbox, *, second_commit: dict[str, str]) -> str:
     (clone / "deploy").mkdir()
     (clone / "deploy" / "compose.yml").write_text("services: {}\n")
     return image_sha
+
+
+def _seed_with_recipe(box: Sandbox, dockerfile: str, second_commit: dict[str, str]) -> str:
+    """Clone whose first commit is the image build, with a Dockerfile and a tracked compose file.
+
+    Two things this has to get right, both of which make a test pass for the wrong reason if it
+    does not. The compose file must be tracked and present at the image sha, or `git diff` between
+    the running tag and HEAD can never mention it. And each recipe needs its own seed and origin:
+    reusing one directory makes the second call commit on top of the first, so the sha it returns
+    is the second commit and the "first build" no longer describes the same tree the recipe is in.
+    """
+    tag = f"{abs(hash(dockerfile)) % 100000:05d}"
+    work = box.root / f"seed_{tag}"
+    origin = box.root / f"origin_{tag}.git"
+    work.mkdir()
+    _git("init", "--initial-branch=main", cwd=work)
+    _git("init", "--bare", "--initial-branch=main", str(origin), cwd=box.root)
+    image_sha = _commit(
+        work,
+        {
+            RUNTIME_PATH: "print('v1')\n",
+            "Dockerfile": dockerfile,
+            COMPOSE_PATH: "services: {}\n",
+        },
+        "runtime: first build",
+    )
+    _commit(work, second_commit, "second commit")
+    _git("remote", "add", "origin", str(origin), cwd=work)
+    _git("push", "origin", "main", cwd=work)
+
+    clone = box.deploy_root / f"botkit-{BOT}"
+    clone.parent.mkdir(parents=True, exist_ok=True)
+    if clone.exists():
+        # Fetch by path, not by the name "origin": after the first recipe the clone's origin points
+        # at a different bare repo, and `reset --hard origin/main` would silently restore the
+        # previous recipe instead of this one.
+        _git("fetch", str(origin), "main", cwd=clone)
+        _git("reset", "--hard", "FETCH_HEAD", cwd=clone)
+        _git("clean", "-fd", cwd=clone)
+    else:
+        _git("clone", str(origin), str(clone), cwd=box.root)
+    return image_sha
+
+
+def test_a_compose_only_change_is_not_drift_when_the_recipe_ignores_deploy(sandbox: Sandbox) -> None:
+    """The false positive that put all nine bots in DRIFT on 03.10, for the seven bots where it holds.
+
+    The compose change that fixed the image pinning touched no file that reaches the image in
+    these seven bots, so no rebuild could have changed anything - and the drift check reported it
+    as an unbuilt runtime change anyway, on every bot, for hours.
+    """
+    image_sha = _seed_with_recipe(
+        sandbox, DOCKERFILE_SELECTIVE, {COMPOSE_PATH: "services: {}\n# pinned\n"}
+    )
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "IMG OK" in log, f"a compose-only change was called unbuilt:\n{log}"
+    assert "unbuilt:" not in log, f"compose reported as an unbuilt runtime change:\n{log}"
+
+
+def test_a_compose_change_is_drift_when_the_recipe_copies_the_whole_repo(sandbox: Sandbox) -> None:
+    """The other three bots really do ship deploy/ inside the image, so there it is real drift.
+
+    This is why a single hardcoded path list cannot be right: the same commit is drift for
+    reminder and a non-event for docuflow.
+    """
+    image_sha = _seed_with_recipe(
+        sandbox, DOCKERFILE_WHOLE_REPO, {COMPOSE_PATH: "services: {}\n# pinned\n"}
+    )
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "unbuilt:" in log, (
+        f"`COPY . .` means the compose file is in the image, but the check called it clean:\n{log}"
+    )
+    assert COMPOSE_PATH in log, f"the log does not name the file that is unbuilt:\n{log}"
+
+
+def test_a_source_change_is_drift_under_either_recipe(sandbox: Sandbox) -> None:
+    """Narrowing the list must not blind it. src/ is in the image for every bot."""
+    for name, recipe in (("selective", DOCKERFILE_SELECTIVE), ("whole", DOCKERFILE_WHOLE_REPO)):
+        sandbox.reset_alert_log()
+        image_sha = _seed_with_recipe(sandbox, recipe, {RUNTIME_PATH: "print('v2')\n"})
+        sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+        log = sandbox.log_text()
+        assert "unbuilt:" in log, f"{name} recipe: a source change was not reported:\n{log}"
+        assert RUNTIME_PATH in log, f"{name} recipe: the log does not name src/:\n{log}"
+
+
+def test_an_unreadable_recipe_reports_rather_than_clears(sandbox: Sandbox) -> None:
+    """Not knowing what reaches the image must not read as "nothing to report".
+
+    This is the branch that made the sandbox itself lie: the seeded clone had no Dockerfile, the
+    path list came back empty, and a conservative fallback that reports everything turned every
+    documentation-only commit into an unbuilt change. The opposite mistake is worse - clearing
+    the check when the recipe cannot be read means a bot with a broken or missing Dockerfile is
+    reported as clean, forever, and the difference is invisible.
+    """
+    # A recipe that copies nothing from the repository: no paths, so the fallback must engage.
+    no_repo_copy = """FROM python:3.12-slim
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+"""
+    image_sha = _seed_with_recipe(sandbox, no_repo_copy, {DOCS_PATH: "docs\n"})
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+    log = sandbox.log_text()
+    assert "unbuilt:" in log, (
+        f"a recipe with no repository COPY left the path list empty and the change was called "
+        f"clean:\n{log}"
+    )
+
+    # And the same when the file is not there at all.
+    sandbox2_image = _seed_with_recipe(sandbox, DOCKERFILE_SELECTIVE, {DOCS_PATH: "docs\n"})
+    (sandbox.deploy_root / f"botkit-{BOT}" / "Dockerfile").unlink()
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{sandbox2_image[:7]}")
+    log = sandbox.log_text()
+    assert "unbuilt:" in log, f"a missing Dockerfile was treated as nothing to report:\n{log}"
+
+
+def test_the_recipe_is_read_rather_than_a_handwritten_list() -> None:
+    """The list must come from the Dockerfile. A hand-maintained one is what broke.
+
+    The removed line was `bot.py src deploy pyproject.toml Dockerfile docker-compose.yml`. It
+    named `deploy`, which is inside the image for three bots and outside it for seven, so it was
+    simultaneously too broad and too narrow - and nobody could tell which bot it was right about.
+    """
+    source = DRIFT_SH.read_text()
+    assert "dockerfile_repo_paths" in source, "the drift check no longer consults the Dockerfile"
+    assert "bot.py src deploy pyproject.toml Dockerfile docker-compose.yml" not in source, (
+        "the hand-written path list is back"
+    )
 
 
 def test_image_sha_is_read_out_of_a_real_tag(sandbox: Sandbox) -> None:

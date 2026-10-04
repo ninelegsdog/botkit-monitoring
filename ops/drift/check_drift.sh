@@ -64,6 +64,39 @@ send_alert() { # $1=b $2=sev $3=reason
     || log "ALERT send FAILED ($bot): $reason"
 }
 
+# Which repository paths end up inside the image, read out of the recipe rather than assumed.
+# A COPY whose source is absolute or a named build stage brings nothing from the repository and
+# is skipped; `COPY . .` means the whole tree, reported as the single prefix ".". Returns nothing
+# when the file is missing or has no readable COPY, and the caller treats that as "cannot tell,
+# assume everything" - a check that reports too much is recoverable, one that reports nothing is
+# not.
+dockerfile_repo_paths() {
+  local file="$1"
+  [ -r "$file" ] || return 0
+  awk '
+    /^[[:space:]]*#/ { next }
+    toupper($1) == "COPY" {
+      # Drop the instruction and any flags (--chown=..., --from=stage, --link), then walk the
+      # remaining words. Everything before the last one is a source; the last is the destination.
+      n = 0
+      for (i = 2; i <= NF; i++) {
+        if ($i ~ /^--/) continue
+        n++
+        arg[n] = $i
+      }
+      if (n < 2) next
+      for (i = 1; i < n; i++) {
+        src = arg[i]
+        if (src ~ /^\//) continue          # absolute path inside the image, not from the repo
+        if (src ~ /^\/\.\./) continue
+        sub(/^\.\//, "", src)
+        if (src == ".") { print "."; exit }
+        print src
+      }
+    }
+  ' "$file" | sort -u
+}
+
 rc_total=0
 for entry in $BOTS; do
   bot="${entry%%:*}"
@@ -127,13 +160,38 @@ for entry in $BOTS; do
       if ! git -c safe.directory="$d" -C "$d" cat-file -e "$imgsha^{commit}" 2>/dev/null; then
         track+=("image sha $imgsha is not in this clone, cannot verify what it built")
       else
-        # What counts is what lands inside the image. The build recipe (Dockerfile) is in;
-        # the CI workflow that runs the build is deliberately not. A live run on 03.10
-        # settled this: the only commits between the running tag and HEAD were the two that
-        # changed deploy.yml, so including it pinned all nine bots to a permanent warning
-        # that no rollout could clear except a pointless rebuild of the whole fleet.
-        stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" -- \
-          bot.py src deploy pyproject.toml Dockerfile docker-compose.yml 2>/dev/null | tr '\n' ' ')
+        # Which files land inside the image is a property of that bot's Dockerfile, and the
+        # bots disagree. Seven copy `pyproject.toml` and `src/`; botkit-reminder and
+        # botkit-membership copy the whole repository with `COPY . .`. So there is no correct
+        # global list - a hardcoded one is either wrong for two bots or useless for seven.
+        #
+        # A list written by hand is also what produced this false positive in the first place.
+        # It named `deploy`, so the compose change that fixed the image pinning was reported as
+        # an unbuilt runtime change on all nine bots, and the drift check went red for a change
+        # that, for seven of them, could not have altered the image at all.
+        image_paths=$(dockerfile_repo_paths "$d/Dockerfile")
+        if [ -z "$image_paths" ]; then
+          # Cannot read the recipe. Report everything rather than quietly declaring it fine.
+          stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" 2>/dev/null | tr '\n' ' ')
+        else
+          # The prefix comes straight from a COPY line, so it carries the slash the recipe wrote:
+          # "src/". Appending "/*" to that yields "src//*", which matches nothing at all - the
+          # condition looks right and never fires, which is the failure mode this whole file is
+          # about. Trailing slashes are stripped first, then the match is exact-or-under.
+          stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" 2>/dev/null \
+            | while IFS= read -r changed; do
+                [ -n "$changed" ] || continue
+                for prefix in $image_paths; do
+                  if [ "$prefix" = "." ]; then
+                    printf '%s ' "$changed"; break
+                  fi
+                  bare="${prefix%/}"
+                  if [[ "$changed" == "$bare" || "$changed" == "$bare"/* ]]; then
+                    printf '%s ' "$changed"; break
+                  fi
+                done
+              done)
+        fi
         if [ -n "$stale" ]; then
           track+=("image $imgsha is older than HEAD ${head:0:7}, unbuilt: $stale")
         else
