@@ -15,7 +15,18 @@ ALERTED_DIR=/var/backups/botkit/alerted
 AM_URL="$ALERTMANAGER_ALERTS_URL"
 MAX_AGE=25200   # 7h (timer бэкапа = 6h)
 THROTTLE=21600  # 6h между повторными алертами
-BOTS=$(for d in /home/deploy/botkit-*/; do b=$(basename "$d"); [ "$b" = "botkit-monitoring" ] && continue; echo "$b"; done)
+# Same rule as backup_bots.sh: a directory name is not evidence that something
+# is a bot. botkit-monitoring, botkit-shared-redis and the fleet snapshot
+# directory /home/deploy/botkit-backups/ all match botkit-*/ and were counted
+# as bots. That is how a snapshot folder created on 04.10.2026 kept this
+# checker reporting "1 bot(s) with backup problems" for hours on end while
+# all nine real backups were fine - and the alert it tried to send for that
+# went to the old localhost:9093 address in /root, where nothing listens.
+# Require evidence of a bot instead: its source tree or its database.
+BOTS=$(for d in /home/deploy/botkit-*/; do
+  [ -d "$d/src" ] || [ -f "$d/data/bot.db" ] || continue
+  basename "$d"
+done)
 NOW=$(date +%s)
 PROBLEMS=0
 
