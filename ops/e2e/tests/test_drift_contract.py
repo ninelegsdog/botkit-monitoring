@@ -465,7 +465,7 @@ def test_a_digest_reference_is_not_compared_as_if_it_had_a_tag(sandbox: Sandbox)
     image_sha = _seed_clone(sandbox, second_commit={DOCS_PATH: "docs\n"})
     sandbox.write_pin(sandbox.tag_for(image_sha))
     digest = f"ghcr.io/ninelegsdog/botkit-{BOT}@sha256:{'a1b2c3d4' * 8}"
-    result = sandbox.run(STUB_IMAGE=digest, STUB_MANIFEST_OK="0")
+    sandbox.run(STUB_IMAGE=digest, STUB_MANIFEST_OK="0")
 
     log = sandbox.log_text()
     assert "does not match IMAGE_TAG" not in log, (
