@@ -1,0 +1,12 @@
+# All botkit check logs are opened per append, and copytruncate covers the one
+# that might not be. Without this they grow forever: botkit-health.log already
+# reached 3.9 MB in a week of hourly runs.
+/var/log/botkit-*.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
