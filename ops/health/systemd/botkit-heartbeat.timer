@@ -1,10 +1,13 @@
 [Unit]
-Description=Send the botkit heartbeat to healthchecks.io every 5 minutes
+Description=Send the botkit heartbeat to Uptime Kuma every 2 minutes
 
 [Timer]
-# Five minutes matches the check's expected period; healthchecks.io treats a
-# gap past 1.5x as the start of an incident, so a dead timer shows up quickly.
-OnCalendar=*:0/5
+# Kuma marks the monitor DOWN once it sees no push inside a 300 s window, so
+# two minutes buys three pushes per window: a single late or lost ping never
+# raises an alarm, while a dead timer still trips one within five to seven
+# minutes - comfortably inside the fifteen minute target.
+OnCalendar=*:0/2
+AccuracySec=15s
 Persistent=true
 Unit=botkit-heartbeat.service
 

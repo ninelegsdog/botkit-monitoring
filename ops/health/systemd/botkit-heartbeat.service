@@ -1,10 +1,10 @@
 [Unit]
-Description=Botkit external heartbeat (healthchecks.io dead-man's switch)
+Description=Botkit external heartbeat (Uptime Kuma dead-man's switch on the monitor)
 # The only check whose silence is meaningful from outside: it proves the host
 # runs code, keeps its timer queue and still reaches the network. Run from the
 # synced repository, like botkit-healthcheck.service, for the same reason.
-After=network-online.target
-Wants=network-online.target
+After=network-online.target botkit-kuma-tunnel.service
+Wants=network-online.target botkit-kuma-tunnel.service
 
 [Service]
 Type=oneshot
