@@ -314,10 +314,13 @@ def test_the_probe_really_asks_the_container(sandbox: Sandbox) -> None:
 def test_unwritable_backups_dir_is_reported_critical(sandbox: Sandbox) -> None:
     """05.10: data/ was writable, backups/ was root:root 700, and this check stayed silent.
 
-    The consistent snapshot is created inside the container at /app/backups - same uid as
-    the database, different mount. A probe that only ever touches /app/data cannot see that
-    failure, and for two days it did not: stage_consistent() failed for all nine bots while
-    every check here reported clean.
+    The consistent snapshot used to be written inside the container to /app/backups -
+    same uid as the database, different mount - and a probe that only ever touched
+    /app/data could not see that failure: stage_consistent() failed for all nine bots
+    for two days while every check here reported clean. Since 05.10 the snapshot goes
+    through the container's tmpfs instead (ops/lib/snapshot.sh) and the bots' own code
+    never mentions the directory, but the mount still belongs to whoever last touched
+    it, so the probe earns its place as an early warning for uid drift.
     """
     image_sha = _seed_clone(sandbox)
     result = sandbox.run(

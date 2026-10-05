@@ -272,6 +272,13 @@ for entry in $BOTS; do
   # while backups/ was still root:root 700, so every consistent snapshot inside
   # stage_consistent() failed for two days and this check - which only ever touched
   # /app/data - kept reporting clean.
+  #
+  # Since 05.10 the snapshot no longer travels through /app/backups at all: it is taken
+  # into the container's tmpfs and streamed out with exec cat (ops/lib/snapshot.sh),
+  # and the bots' own code never mentions the directory - the mount is legacy. The
+  # probe stays anyway: both directories are still bind-mounts owned by whoever last
+  # touched them, and a uid mismatch there is precisely the failure that hid for two
+  # days.
   if [ "$running" = "true" ]; then
     cuid=$(docker inspect -f '{{.Config.User}}' "$ctr" 2>/dev/null || echo "?")
     for probe in /app/data /app/backups; do

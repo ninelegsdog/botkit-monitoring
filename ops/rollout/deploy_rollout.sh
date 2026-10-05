@@ -141,12 +141,15 @@ compose_up() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
 }
 
-# Both bind-mounts the running container writes to: data/ holds the database,
-# backups/ holds the consistent SQLite snapshot that stage_consistent() creates as
-# this same uid from inside the container. They fail independently - on 05.10 data/
-# was writable while backups/ was still root:root 700, which broke every consistent
-# export for two days while a data/-only preflight passed. Every message below
-# therefore starts with the mount name, so the refusal can name the fix.
+# Both bind-mounts compose gives the container. data/ holds the database the app opens;
+# backups/ is a legacy mount - since 05.10 the consistent snapshot goes into the
+# container's tmpfs and is streamed out with exec cat (ops/lib/snapshot.sh), and the
+# bots' own code never mentions the directory. It is probed anyway because both
+# directories are still owned by whoever last touched them, and ownership drift there
+# is what hid for two days: on 05.10 data/ was writable while backups/ was still
+# root:root 700, which broke every consistent export while a data/-only preflight
+# passed. Every message below therefore starts with the mount name, so the refusal can
+# name the fix.
 data_preflight() {
   local probe mount dir duid cuid
   for probe in /app/data /app/backups; do
