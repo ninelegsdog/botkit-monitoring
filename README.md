@@ -39,6 +39,31 @@ docker compose up -d
 | BotUpdatesStalled | 0 апдейтов за 30m при живом процессе | 10m |
 | BotHighHandlerLatency | p95 > 5s | 10m |
 
+## Внешний heartbeat (Uptime Kuma)
+
+Стоп-кран, который работает, когда прод мёртв. Каждые 2 минуты
+`ops/health/heartbeat.sh` шлёт GET на push-эндпоинт Uptime Kuma, живущего на
+мониторе `31.76.11.198` (контейнер `uptime-kuma`, 2.5.5, образ запинен по digest,
+слушает **только loopback монитора**).
+
+Путь пинга: прод `127.0.0.1:3001` → SSH-туннель `botkit-kuma-tunnel.service`
+(`Restart=always`, отдельный ключ, на мониторе — пользователь `kuma-tunnel`,
+`nologin` + `restrict,port-forwarding,permitopen="127.0.0.1:3001"`) → loopback
+монитора. Новых портов в интернет не открываем, UFW не меняется, токен не ходит
+по открытой сети в чистом виде.
+
+Монитор Kuma `botkit-prod heartbeat` (type `push`, окно 300 с) при молчании
+дольше окна уходит в DOWN и шлёт `botkit-telegram` — в тот же чат, куда Alertmanager.
+Две потерянные пинги в окно не дают ложного аларма; мёртвый таймер или мёртвый
+прод — дают, в пределах 5–7 минут.
+
+Секреты: `/root/.botkit-heartbeat/ping.url` (прод), `/root/.uptime-kuma-admin.txt`
+(монитор) — перенести в KeePass. Доступ к веб-интерфейсу: с predator
+`ssh -N -L 13001:127.0.0.1:3001 vps` → `http://127.0.0.1:13001`, логин `botkit`.
+
+Почему не healthchecks.io: сервис недоступен владельцу из России (403 на edge),
+поэтому наблюдатель свой и располагается на машине вне прода.
+
 ## Валидация
 ```
 promtool check config prometheus/prometheus.yml
@@ -50,6 +75,7 @@ CI: compose config, promtool, yamllint.
 ## Порты
 Все слушают ТОЛЬКО 127.0.0.1: 9090 (prom), 9093/9094 (am), 3000 (grafana), 9000/9001 (minio),
 3100 (loki), 3200 (tempo), 4319/4320 (otel-collector OTLP). Наружу — ничего.
+На мониторе `31.76.11.198`: 3001 (Uptime Kuma) — тоже только loopback.
 
 ## Reverse-proxy / Telegram webhook (`reverse-proxy/`)
 TLS-терминация (nginx) + Let's Encrypt (certbot, DNS-01 через duckdns).
