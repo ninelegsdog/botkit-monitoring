@@ -141,12 +141,14 @@ ln -sf /home/deploy/botkit-monitoring/ops/backup/restic-backup.sh /usr/local/sbi
 ln -sf /home/deploy/botkit-monitoring/ops/backup/restic-check.sh  /usr/local/sbin/botkit-restic-check
 ```
 
-Чистая машина, где репозитория ещё нет, — копии; скрипты ищут `../lib/fleet.sh`
-от своего каталога, поэтому рядом ставятся и `fleet.sh`, и `fleet.env`:
+Чистая машина, где репозитория ещё нет, — копии; скрипты ищут `../lib/*` от своего
+каталога, поэтому `ops/lib/` целиком ставится рядом в `/usr/local/lib/` (там
+`fleet.sh` + `fleet.env` для адресов мониторинга и `snapshot.sh` — общий механизм
+согласованной копии SQLite, который используют оба скрипта):
 
 ```bash
 scp ops/backup/restic-backup.sh ops/backup/restic-check.sh root@2.27.204.95:/usr/local/sbin/
-scp ops/lib/fleet.sh ops/lib/fleet.env                     root@2.27.204.95:/usr/local/lib/
+scp ops/lib/*                                                 root@2.27.204.95:/usr/local/lib/
 scp ops/backup/systemd/botkit-restic-*           root@2.27.204.95:/etc/systemd/system/
 ssh root@2.27.204.95 'chmod 750 /usr/local/sbin/botkit-restic-*; systemctl daemon-reload; \
   systemctl enable --now botkit-restic-data.timer botkit-restic-monitor.timer botkit-restic-check.timer'

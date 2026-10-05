@@ -11,6 +11,11 @@ mkdir -p "$STATUS_DIR" "$ALERTED_DIR"
 FAIL=0
 RC=botkit-shared-redis-redis-1
 
+# Единый механизм согласованной копии, общий с offsite-потоком (restic-backup.sh):
+# раньше здесь был обычный cp, дающий надорванную копию в момент записи.
+_self=$(readlink -f "${BASH_SOURCE[0]}")
+. "$(dirname "$_self")/../lib/snapshot.sh"
+
 sqlite_ok() {
   python3 - "$1" <<'PY'
 import sqlite3, sys
@@ -81,12 +86,15 @@ for d in "$BASE"/botkit-*/; do
   mkdir -p "$d/backups"
   bdb_ok=0
   if [ -f "$d/data/bot.db" ]; then
-    cp "$d/data/bot.db" "$d/backups/bot.db.$TS"
-    dbsz=$(stat -c%s "$d/backups/bot.db.$TS" 2>/dev/null || echo 0)
-    if [ "${dbsz:-0}" -gt 0 ] && sqlite_ok "$d/backups/bot.db.$TS"; then
+    # Снимок тем же механизмом, что и offsite-поток: online-backup API во временный
+    # файл /tmp контейнера (tmpfs) -> docker cp. Обычный cp здесь был до 05.10 и давал
+    # надорванную копию, если база писалась в момент копирования; integrity_check
+    # после cp такое не всегда ловит. Если контейнер не запущен - тот же API на хосте.
+    if consistent_snapshot "$bot" /app/data/bot.db "$d/data/bot.db" "$d/backups/bot.db.$TS" \
+       && sqlite_ok "$d/backups/bot.db.$TS"; then
       bdb_ok=1
     else
-      echo "WARN $bot sqlite integrity FAILED"
+      echo "WARN $bot sqlite snapshot/integrity FAILED"
     fi
   else
     echo "WARN $bot no data/bot.db"

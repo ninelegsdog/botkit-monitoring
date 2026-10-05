@@ -20,27 +20,32 @@ flock -n 9 || { echo "$PREFIX уже выполняется, повтор про
 log() { echo "$PREFIX $*"; }
 die() { echo "$PREFIX ОШИБКА: $*" >&2; exit 1; }
 
-# Согласованный снимок SQLite через online-backup API внутри контейнера.
-# Обычный cp (как в backup_bots.sh) может дать надорванную копию, если база пишется.
+# Общий механизм согласованной копии (см. ops/lib/snapshot.sh). Резолв через
+# readlink -f: на живом хосте этот скрипт - симлинк в клон канона, и sourcing
+# относительно самого симлинка искал бы /usr/local/lib/snapshot.sh.
+_self=$(readlink -f "${BASH_SOURCE[0]}")
+. "$(dirname "$_self")/../lib/snapshot.sh"
+
+# Согласованный снимок SQLite через общий ops/lib/snapshot.sh: online-backup API
+# внутри контейнера во временный файл его /tmp (tmpfs) -> docker cp на хост, либо
+# хостовой python3, если контейнер не запущен. Обычный cp (как был в backup_bots.sh)
+# даёт надорванную копию, если база пишется; запись в /app/backups хоста (как было
+# здесь до 05.10) зависела от владельца каталога и на два дня тихо сломала все
+# девять снимков. Владелец хостового каталога на результат больше не влияет.
 stage_consistent() {
-  local b src snap failed=0 prune ts
+  local b src dest failed=0 prune ts
   ts=$(date -u +%Y-%m-%d-%H%M)
   install -d -m 700 "$STAGE"
   for b in $BOTS; do
     src="botkit-$b"
-    snap="/app/backups/export.$ts.db"
     if ! docker inspect "$src" >/dev/null 2>&1; then
       log "поток data: контейнер $src не найден"; failed=$((failed+1)); continue
     fi
     install -d -m 700 "$STAGE/$b"
-    if ! docker exec "$src" python3 -c "import sqlite3;src=sqlite3.connect('file:/app/data/bot.db?mode=ro',uri=True);dst=sqlite3.connect('$snap');src.backup(dst);dst.close();src.close()" 2>/dev/null; then
-      log "поток data: $b — online-backup API не отработал"; failed=$((failed+1)); continue
+    dest="$STAGE/$b/export.$ts.db"
+    if ! consistent_snapshot "$src" "/app/data/bot.db" "/home/deploy/botkit-$b/data/bot.db" "$dest"; then
+      log "поток data: $b — согласованный снимок не удался"; failed=$((failed+1)); continue
     fi
-    if ! docker cp "$src:$snap" "$STAGE/$b/" >/dev/null 2>&1; then
-      log "поток data: $b — docker cp не удался"; failed=$((failed+1))
-      docker exec "$src" rm -f "$snap" >/dev/null 2>&1; continue
-    fi
-    docker exec "$src" rm -f "$snap" >/dev/null 2>&1
     prune=$(ls -t "$STAGE/$b/export."* 2>/dev/null | tail -n +$((STAGE_KEEP+1)))
     [ -n "$prune" ] && rm -f $prune
   done
