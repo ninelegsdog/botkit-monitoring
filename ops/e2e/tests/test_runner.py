@@ -286,7 +286,7 @@ def test_alert_on_failure_names_only_the_channels_that_delivered(tmp_path):
     assert got == "telegram"
 
 
-def test_alert_on_failure_says_NONE_when_every_channel_is_off(tmp_path):
+def test_alert_on_failure_says_none_when_every_channel_is_off(tmp_path):
     settings = _settings(tmp_path)
     settings.alert_url = ""
     settings.alert_telegram = False

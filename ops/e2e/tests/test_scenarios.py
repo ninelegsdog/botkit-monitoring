@@ -4,7 +4,7 @@ from e2e.config import load_scenarios
 
 
 def test_all_nine():
-    sc = load_scenarios(Path("scenarios.yml"))
+    sc = load_scenarios(Path(__file__).resolve().parents[1] / "scenarios.yml")
     exp = {"botkit-bookingbot", "botkit-delivery", "botkit-docuflow", "botkit-leadgen",
            "botkit-membership", "botkit-pricesentry", "botkit-reminder", "botkit-store", "botkit-support"}
     assert exp.issubset(set(sc))

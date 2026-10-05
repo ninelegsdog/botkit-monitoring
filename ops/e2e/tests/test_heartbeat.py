@@ -7,8 +7,8 @@ run is still a proof of life, and an outage must not be re-announced every cycle
 import asyncio
 
 import pytest
-
 import watchdog_run
+
 from e2e import heartbeat
 from e2e.config import Settings
 
