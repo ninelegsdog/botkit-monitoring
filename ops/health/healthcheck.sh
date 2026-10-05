@@ -81,7 +81,7 @@ fi
 # --- 5. failed systemd units ------------------------------------------------
 # The unit itself is excluded: when this script exits 1 systemd marks it failed
 # and the next run would otherwise report its own expected failure forever.
-units=$(systemctl --failed --no-legend 2>/dev/null | awk '{print $1}' | grep -v "^${SELF_UNIT}$" || true)
+units=$(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | grep -E '[.]service$' | grep -v "^${SELF_UNIT}$" || true)
 if [ -n "$units" ]; then
   while IFS= read -r unit; do
     note_fail "unit=$unit"
