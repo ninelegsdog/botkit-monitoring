@@ -73,5 +73,49 @@ if [ "$PROBLEMS" -gt 0 ]; then
   echo "RESULT: $PROBLEMS bot(s) with backup problems"
   exit 1
 fi
+
+# Согласованные снимки проверяются отдельно от .ok-файлов выше: те описывают cp-копии,
+# которые не ломались никогда. С 03.10 по 05.10 именно согласованные экспорты падали у
+# всех девяти ботов (каталог backups/ остался root:root 700, а писал в него uid 1001),
+# и при этом здесь красовалось "all backups fresh": свежая копия той же самой базы,
+# могущей быть надорванной, не доказывает, что её вообще можно восстановить. Метрику
+# запуска пишет сам бэкапер restic-backup.sh, вторая свежесть держится на её timestamp.
+RUNMETRIC=${RUNMETRIC:-/var/lib/node-exporter-textfile/botkit_backup_run.prom}
+MAX_AGE_RUN=${MAX_AGE_RUN:-28800}  # 8h: поток data ходит каждые 6ч, две пропущенные смены = аларм
+CONSISTENT_PROBLEM=
+RUN_AGE=
+
+if [ ! -r "$RUNMETRIC" ]; then
+  CONSISTENT_PROBLEM="нет метрики запуска в $RUNMETRIC (поток data не запускался?)"
+else
+  cfails=$(awk '/^botkit_backup_consistent_failures /{print $2}' "$RUNMETRIC" | head -1)
+  clast=$(awk '/^botkit_backup_last_run_timestamp_seconds /{print $2}' "$RUNMETRIC" | head -1)
+  case "$clast" in
+    ''|*[!0-9]*) CONSISTENT_PROBLEM="в $RUNMETRIC нет корректного last_run_timestamp" ;;
+    *)
+      RUN_AGE=$(( NOW - clast ))
+      if [ -z "$cfails" ] || ! [[ "$cfails" =~ ^[0-9]+$ ]]; then
+        CONSISTENT_PROBLEM="в $RUNMETRIC нет корректного consistent_failures"
+      elif [ "$cfails" -gt 0 ]; then
+        CONSISTENT_PROBLEM="$cfails согласованных снимков не удалось в последнем прогоне"
+      elif [ "$RUN_AGE" -gt "$MAX_AGE_RUN" ]; then
+        CONSISTENT_PROBLEM="поток data не запускался ${RUN_AGE}s (порог ${MAX_AGE_RUN}s)"
+      fi
+      ;;
+  esac
+fi
+
+if [ -n "$CONSISTENT_PROBLEM" ]; then
+  echo "PROBLEM consistent-stream: $CONSISTENT_PROBLEM"
+  send_alert "consistent-stream" "$CONSISTENT_PROBLEM"
+  PROBLEMS=$((PROBLEMS+1))
+else
+  echo "OK consistent-stream (последний прогон ${RUN_AGE}s назад, failures=0)"
+fi
+
+if [ "$PROBLEMS" -gt 0 ]; then
+  echo "RESULT: $PROBLEMS bot(s) with backup problems"
+  exit 1
+fi
 echo "RESULT: all backups fresh"
 exit 0

@@ -141,25 +141,36 @@ compose_up() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps
 }
 
-DATA_PROBE=/app/data/.rollout-preflight
+# Both bind-mounts the running container writes to: data/ holds the database,
+# backups/ holds the consistent SQLite snapshot that stage_consistent() creates as
+# this same uid from inside the container. They fail independently - on 05.10 data/
+# was writable while backups/ was still root:root 700, which broke every consistent
+# export for two days while a data/-only preflight passed. Every message below
+# therefore starts with the mount name, so the refusal can name the fix.
 data_preflight() {
-  local dir="$COMPOSE_DIR/data" duid cuid
-  if [[ ! -d "$dir" ]]; then
-    echo "missing:$dir"; return 1
-  fi
-  duid=$(stat -c %u "$dir" 2>/dev/null || echo "?")
-  cuid=$(docker inspect -f '{{.Config.User}}' "botkit-$bot" 2>/dev/null || echo "?")
-  if [[ "$(docker inspect -f '{{.State.Running}}' "botkit-$bot" 2>/dev/null)" != "true" ]]; then
-    # Nothing to exec into. Fall back to the ownership comparison so a stopped bot
-    # is not waved through on a check that never ran.
-    if [[ "$duid" == "${cuid%%:*}" ]]; then echo "ok(dir uid=$duid, container down)"; return 0; fi
-    echo "container down and dir uid=$duid != container user=$cuid"; return 1
-  fi
-  if docker exec "botkit-$bot" sh -c "touch $DATA_PROBE && rm -f $DATA_PROBE" 2>/dev/null; then
-    echo "ok(dir uid=$duid, container user=$cuid)"; return 0
-  fi
-  echo "data/ not writable by container user (dir uid=$duid, container user=$cuid)"
-  return 1
+  local probe mount dir duid cuid
+  for probe in /app/data /app/backups; do
+    mount=${probe#/app/}
+    dir="$COMPOSE_DIR/$mount"
+    if [[ ! -d "$dir" ]]; then
+      echo "$mount: missing $dir"; return 1
+    fi
+    duid=$(stat -c %u "$dir" 2>/dev/null || echo "?")
+    cuid=$(docker inspect -f '{{.Config.User}}' "botkit-$bot" 2>/dev/null || echo "?")
+    if [[ "$(docker inspect -f '{{.State.Running}}' "botkit-$bot" 2>/dev/null)" != "true" ]]; then
+      # Nothing to exec into. Fall back to the ownership comparison so a stopped bot
+      # is not waved through on a check that never ran.
+      if [[ "$duid" != "${cuid%%:*}" ]]; then
+        echo "$mount: container down and dir uid=$duid != container user=$cuid"; return 1
+      fi
+      continue
+    fi
+    if ! docker exec "botkit-$bot" sh -c "touch $probe/.rollout-preflight && rm -f $probe/.rollout-preflight" 2>/dev/null; then
+      echo "$mount: not writable by container user (dir uid=$duid, container user=$cuid)"
+      return 1
+    fi
+  done
+  echo "ok(both mounts writable, container user=$cuid)"; return 0
 }
 
 SV=$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --services 2>/dev/null | head -1)
@@ -173,7 +184,7 @@ echo "  target  : $TARGET_IMAGE"
 echo "  service : $SV (compose $COMPOSE_FILE)"
 
 if [[ "$DRY" == 1 ]]; then
-  echo "  (--dry-run) preflight: data/ writable by container user -> $(data_preflight || echo FAILED)"
+  echo "  (--dry-run) preflight: data/ and backups/ writable by container user -> $(data_preflight || echo FAILED)"
   echo "  (--dry-run) image pin: IMAGE_TAG=$IMG -> $ENV_FILE (currently IMAGE_TAG=$(read_image_tag || echo none))"
   echo "  (--dry-run) plan: pull $TARGET_IMAGE -> IMAGE_TAG=$IMG in env -> up -d --no-deps -> health x$HEALTH_TRIES on 127.0.0.1:$PORT -> metrics>=28 -> rollback to $CUR_IMAGE on failure"
   exit 0
@@ -238,7 +249,9 @@ send_alert() {
     log "bot=$bot DATA PREFLIGHT FAILED: $PF"
     send_alert critical "data preflight failed for $bot ($PF) - rollout refused, container untouched"
     echo "  -> REFUSED: $PF"
-    echo "  -> fix: chown -R 1001:1001 $COMPOSE_DIR/data"
+    # Every preflight message is prefixed with the mount name, so the refusal
+    # names the directory that is actually wrong instead of always data/.
+    echo "  -> fix: chown -R 1001:1001 $COMPOSE_DIR/${PF%%:*}"
     exit 6
   fi
   log "bot=$bot preflight ok ($PF)"

@@ -62,10 +62,12 @@ GIT_ENV = {
 
 # check_drift.sh reaches for docker in four shapes: inspect with a format, exec into a
 # container, compose config, and nothing else. `exec` is the one that matters here - it is
-# how the check asks the container whether it can write its own data directory - so the stub
+# how the check asks the container whether it can write its own bind-mounts - so the stub
 # honours STUB_EXEC_OK instead of pretending every exec succeeded. Before this case existed
 # the stub answered `exec` with an empty line and exit 0, which would have made a broken
-# fleet look healthy in every test that used it.
+# fleet look healthy in every test that used it. STUB_EXEC_FAIL_PATH narrows that down to a
+# single mount: the 05.10 failure was data/ writable and backups/ not, which a stub that can
+# only fail every probe or none of them could not have expressed.
 DOCKER_STUB = """#!/usr/bin/env bash
 fmt=""; ctr=""; sub=""
 for arg in "$@"; do
@@ -78,6 +80,11 @@ for arg in "$@"; do
 done
 if [ "$sub" = "exec" ]; then
   printf '%s\\n' "$ctr" >> "${STUB_EXEC_LOG:-/dev/null}"
+  if [ -n "${STUB_EXEC_FAIL_PATH:-}" ]; then
+    case "$*" in
+      *"$STUB_EXEC_FAIL_PATH"*) exit 1 ;;
+    esac
+  fi
   [ "${STUB_EXEC_OK:-1}" = "1" ] && exit 0
   exit 1
 fi
@@ -243,6 +250,9 @@ def _seed_clone(box: Sandbox) -> str:
     (clone / "deploy").mkdir()
     (clone / "deploy" / "compose.yml").write_text("services: {}\n")
     (clone / "data").mkdir()
+    # The second bind-mount: a fresh clone carries both, and the preflight has to see
+    # backups/ owned by someone who is not the runtime user, exactly like production.
+    (clone / "backups").mkdir()
     return image_sha
 
 
@@ -298,6 +308,55 @@ def test_the_probe_really_asks_the_container(sandbox: Sandbox) -> None:
     )
     assert "/app/data" in DRIFT_SH.read_text(), (
         "the probe path no longer matches the compose mount of ../data:/app/data"
+    )
+
+
+def test_unwritable_backups_dir_is_reported_critical(sandbox: Sandbox) -> None:
+    """05.10: data/ was writable, backups/ was root:root 700, and this check stayed silent.
+
+    The consistent snapshot is created inside the container at /app/backups - same uid as
+    the database, different mount. A probe that only ever touches /app/data cannot see that
+    failure, and for two days it did not: stage_consistent() failed for all nine bots while
+    every check here reported clean.
+    """
+    image_sha = _seed_clone(sandbox)
+    result = sandbox.run(
+        STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}",
+        STUB_EXEC_OK="1",
+        STUB_EXEC_FAIL_PATH="/app/backups",
+    )
+
+    log = sandbox.log_text()
+    assert result.returncode == 1, f"the check passed a bot that cannot write backups/:\n{log}"
+    assert "backups/ not writable by container user" in log, (
+        f"the backups-layer failure never reached the log:\n{log}"
+    )
+    assert "data/ not writable" not in log, f"the writable data/ mount was flagged too:\n{log}"
+
+
+def test_both_gates_probe_both_mounts() -> None:
+    """Neither gate may ask about data/ only - the two mounts fail independently."""
+    drift = DRIFT_SH.read_text()
+    assert "/app/backups" in drift, (
+        "check_drift.sh no longer probes the mount where the consistent snapshot is written"
+    )
+
+    rollout = ROLLOUT_SH.read_text()
+    preflight = rollout[rollout.index("data_preflight()") : rollout.index("SV=")]
+    assert "/app/backups" in preflight, (
+        "the rollout preflight does not ask about backups/, so a rollout can start against a "
+        "directory the container cannot write"
+    )
+    assert "/app/data" in preflight, "the preflight stopped checking the database mount"
+
+
+def test_rollout_refusal_names_the_failing_mount() -> None:
+    """Naming data/ unconditionally is how 05.10-style failures got misdiagnosed."""
+    source = ROLLOUT_SH.read_text()
+    gate = source.index("if ! PF=$(data_preflight); then")
+    pull = source.index('log "bot=$bot pulling $TARGET_IMAGE ..."')
+    assert "${PF%%:*}" in source[gate:pull], (
+        "the fix hint no longer derives the directory from the failure message"
     )
 
 

@@ -256,22 +256,31 @@ for entry in $BOTS; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE_URL:$port/health") || code=000
   [ "$code" = "200" ] || critical+=("/health=$code")
 
-  # --- data layer: can the runtime user actually open its SQLite file? (CRITICAL) ---
-  # compose pins user: "1001:1001" and bind-mounts ../data into /app/data, while the
-  # host directory keeps whatever owner it happens to have. The compose healthcheck
-  # probes /health and a Redis socket - it never reads SQLite - so a mismatch is
-  # invisible from the outside: on 03.10 a fleet-wide `chown -R deploy:deploy` left all
-  # nine bots unable to open their database and every one still reported healthy. Worse,
-  # a long-lived process keeps working on the descriptor it opened before the change, so
-  # the damage stays latent until a rollout recreates the container and the app dies on
-  # "unable to open database file". The only honest signal is to ask the container
-  # itself, as the user it actually runs as.
+  # --- data layer: can the runtime user actually write both bind-mounts? (CRITICAL) ---
+  # compose pins user: "1001:1001" and bind-mounts ../data and ../backups into the
+  # container, while each host directory keeps whatever owner it happens to have. The
+  # compose healthcheck probes /health and a Redis socket - it never reads SQLite and
+  # never writes a snapshot - so a mismatch is invisible from the outside: on 03.10 a
+  # fleet-wide `chown -R deploy:deploy` left all nine bots unable to open their database
+  # and every one still reported healthy. Worse, a long-lived process keeps working on
+  # the descriptor it opened before the change, so the damage stays latent until a
+  # rollout recreates the container and the app dies on "unable to open database file".
+  # The only honest signal is to ask the container itself, as the user it actually runs
+  # as.
+  #
+  # Both mounts, because they fail independently: on 05.10 data/ was perfectly writable
+  # while backups/ was still root:root 700, so every consistent snapshot inside
+  # stage_consistent() failed for two days and this check - which only ever touched
+  # /app/data - kept reporting clean.
   if [ "$running" = "true" ]; then
-    if ! docker exec "$ctr" sh -c 'touch /app/data/.driftprobe && rm -f /app/data/.driftprobe' 2>/dev/null; then
-      duid=$(stat -c %u "$d/data" 2>/dev/null || echo "?")
-      cuid=$(docker inspect -f '{{.Config.User}}' "$ctr" 2>/dev/null || echo "?")
-      critical+=("data/ not writable by container user (dir uid=$duid, container user=$cuid)")
-    fi
+    cuid=$(docker inspect -f '{{.Config.User}}' "$ctr" 2>/dev/null || echo "?")
+    for probe in /app/data /app/backups; do
+      mnt=${probe#/app/}
+      if ! docker exec "$ctr" sh -c "touch $probe/.driftprobe && rm -f $probe/.driftprobe" 2>/dev/null; then
+        duid=$(stat -c %u "$d/$mnt" 2>/dev/null || echo "?")
+        critical+=("$mnt/ not writable by container user (dir uid=$duid, container user=$cuid)")
+      fi
+    done
   fi
 
   # --- compose validation (CRITICAL) ---
