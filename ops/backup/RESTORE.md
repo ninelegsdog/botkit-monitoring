@@ -129,8 +129,24 @@ python3 -c "import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute('pragm
 
 ## Деплой бэкап-части
 
+На живом хосте оба скрипта — **симлинки в клон канона**: правка подхватывается
+`git pull`, второй копии не существует и ей нечем устареть. 05.10.2026 копия в
+`/usr/local/sbin` отстала от канона на три дня (S1 добавил в скрипт
+`source ../lib/fleet.sh`), и после переустановки она падала на несуществующем
+`/usr/local/lib/fleet.sh` — таймер продолжал писать «все потоки в норме» по старой
+версии, пока новая даже не запускалась.
+
+```bash
+ln -sf /home/deploy/botkit-monitoring/ops/backup/restic-backup.sh /usr/local/sbin/botkit-restic-backup
+ln -sf /home/deploy/botkit-monitoring/ops/backup/restic-check.sh  /usr/local/sbin/botkit-restic-check
+```
+
+Чистая машина, где репозитория ещё нет, — копии; скрипты ищут `../lib/fleet.sh`
+от своего каталога, поэтому рядом ставятся и `fleet.sh`, и `fleet.env`:
+
 ```bash
 scp ops/backup/restic-backup.sh ops/backup/restic-check.sh root@2.27.204.95:/usr/local/sbin/
+scp ops/lib/fleet.sh ops/lib/fleet.env                     root@2.27.204.95:/usr/local/lib/
 scp ops/backup/systemd/botkit-restic-*           root@2.27.204.95:/etc/systemd/system/
 ssh root@2.27.204.95 'chmod 750 /usr/local/sbin/botkit-restic-*; systemctl daemon-reload; \
   systemctl enable --now botkit-restic-data.timer botkit-restic-monitor.timer botkit-restic-check.timer'

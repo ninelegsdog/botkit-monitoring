@@ -7,7 +7,11 @@
 #
 set -u
 
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+# S1 loader, resolved through symlinks: /root/check_backups.sh is a link into the
+# repository, and dirname of the link itself would be /root, where ../lib/fleet.sh
+# does not exist - the very first line of every manual run of this script failed on it.
+_self=$(readlink -f "${BASH_SOURCE[0]}")
+. "$(dirname "$_self")/../lib/fleet.sh"
 STATUS_DIR=/var/backups/botkit/status
 ALERTED_DIR=/var/backups/botkit/alerted
 # S1: was http://localhost:9093/... - localhost can resolve to ::1 where

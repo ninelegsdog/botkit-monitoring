@@ -5,7 +5,13 @@ PREFIX="[botkit-restic-check]"
 PW_DIR=${PW_DIR:-/root/.botkit-backup}
 BACKUP_HOST=${BACKUP_HOST:-31.76.11.198}
 TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_backup.prom}
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+# The loader is resolved through symlinks: /usr/local/sbin/botkit-restic-check is a
+# link into the repository on the live host, and sourcing ../lib/fleet.sh relative to
+# the link's own directory would look for /usr/local/lib/fleet.sh, which is not
+# installed - that exact miss is what made the deployed copy fail every 15 minutes
+# until the copy was replaced by the link.
+_self=$(readlink -f "${BASH_SOURCE[0]}")
+. "$(dirname "$_self")/../lib/fleet.sh"
 # S1: was a hardcoded default. fleet.sh is the single source; the env var
 # still wins so the unit can override it for a one-off.
 ALERTS_URL=${ALERTS_URL:-$ALERTMANAGER_ALERTS_URL}
