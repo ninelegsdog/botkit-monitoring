@@ -297,10 +297,31 @@ groups:
           description: "botkit_backup_ok не поступает от node_exporter более 30 минут — таймер botkit-restic-check.timer не работает, свежесть бэкапов не контролируется."
 
       - alert: BotkitBackupRunFailed
-        expr: botkit_backup_consistent_failures > 0
+        # max_over_time вместо простого "> 0" и вместо rate(), который предлагался в
+        # плане: гейдж пишется один раз за прогон (6 ч) и сам падает в 0 после
+        # успешного запуска. rate() на гейдже трактовал бы убывание как сброс
+        # счётчика и врал бы о скорости, а max_over_time честно отвечает на вопрос
+        # «были ли отказы в последние 15 минут»: правило срабатывает и на самом
+        # факте отказа, и переживает восстановление на 15 минут — после чего само
+        # гаснет. $value при этом остаётся числом ботов (максимум в окне), так что
+        # summary не показывает дробь.
+        expr: max_over_time(botkit_backup_consistent_failures[15m]) > 0
         for: 30m
         labels:
           severity: critical
         annotations:
           summary: "{{ $value }} ботов без согласованного снимка БД"
           description: "botkit-restic-backup не смог снять БД через sqlite online-backup API как минимум для части ботов. Снапшот существует, но в нём может не быть последних изменений этих ботов — возраст бэкапа этого не покажет."
+
+      - alert: BotkitBackupRunMetricMissing
+        # Ровно та же слепота, что уже была у самого бэкапера: таймер умер — и
+        # проверка перестала падать, потому что ей нечего сравнивать. botkit_backup_ok
+        # таким absent-алертом уже защищён (BotkitBackupCheckMissing), метрика запуска —
+        # нет: без неё не видно ни отказов, ни того, что прогон вообще не происходил.
+        expr: absent(botkit_backup_consistent_failures)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Метрики запуска бэкапа нет"
+          description: "botkit_backup_consistent_failures не поступает от node_exporter более 30 минут — таймер botkit-restic-data.timer не работает либо botkit-restic-backup падает до записи метрики. Согласованные снимки не контролируются."
