@@ -1,0 +1,11 @@
+[Unit]
+Description=Botkit external heartbeat (healthchecks.io dead-man's switch)
+# The only check whose silence is meaningful from outside: it proves the host
+# runs code, keeps its timer queue and still reaches the network. Run from the
+# synced repository, like botkit-healthcheck.service, for the same reason.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/health/heartbeat.sh

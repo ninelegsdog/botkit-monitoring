@@ -1,0 +1,12 @@
+[Unit]
+Description=Send the botkit heartbeat to healthchecks.io every 5 minutes
+
+[Timer]
+# Five minutes matches the check's expected period; healthchecks.io treats a
+# gap past 1.5x as the start of an incident, so a dead timer shows up quickly.
+OnCalendar=*:0/5
+Persistent=true
+Unit=botkit-heartbeat.service
+
+[Install]
+WantedBy=timers.target

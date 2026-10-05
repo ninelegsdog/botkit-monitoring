@@ -1,0 +1,52 @@
+[Unit]
+Description=Alertmanager forward for the E2E host (127.0.0.1:19093 -> prod:9093)
+# The alert path was closed to this host twice over: Alertmanager binds the prod
+# loopback, and prod shipped AllowTcpForwarding no (10-hard.conf, deliberately
+# left untouched). The prod side now carries a Match block for the dedicated
+# e2e-am-tunnel account whose only capability is permitopen=127.0.0.1:9093 - no
+# shell, no other destination - so this process can reach exactly one port.
+#
+# The forward runs as algtro because the jump resolves through the "vps" alias
+# and key in ~/.ssh/config. A dedicated user would mean copying that config and
+# two keys into its home, which spreads the jump key for no gain: the key that
+# actually drives the forward is pinned on the far side, and the E2E runner
+# cannot read this home (ProtectHome read-only on its own unit).
+Documentation=file:///home/deploy/botkit-monitoring/ops/e2e/TESTING_REQUIREMENTS.md
+# systemd wants these in [Unit]; in [Service] they are silently ignored.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=algtro
+Group=algtro
+ExecStart=/usr/bin/ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/algtro/.ssh/id_ed25519_e2e_am -J vps -N -L 127.0.0.1:19093:127.0.0.1:9093 e2e-am-tunnel@2.27.204.95
+Restart=always
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# read-only, not true: ssh must read the key and the "vps" alias. The runner on
+# this host has ProtectHome=true and cannot see any of it either way.
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+# Two hops, three addresses: loopback, the jump host, prod. Nothing else is
+# reachable even if the port pin on the far side were removed.
+IPAddressDeny=any
+IPAddressAllow=localhost 31.76.11.198 2.27.204.95
+
+[Install]
+WantedBy=multi-user.target
