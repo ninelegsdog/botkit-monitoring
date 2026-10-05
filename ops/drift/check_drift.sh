@@ -143,7 +143,12 @@ for entry in $BOTS; do
     *":$CHANNEL-"*) ;;
     *) track+=("image tag not on channel $CHANNEL: $img") ;;
   esac
-  if [ -n "${head:-}" ] && [ "$img" != "unknown" ]; then
+  # The reference for image staleness is origin/main, not this clone's HEAD. The image is
+  # built from the branch tip by deploy.yml; HEAD is only the deploy checkout, and when the
+  # checkout lagged behind, a branch-tip image was reported as "older than HEAD" while the
+  # checkout's own commits were listed as unbuilt - the message named the opposite of what
+  # happened. Tracking (HEAD vs origin/main) stays a separate, honest line above.
+  if [ -n "${head:-}" ] && [ -n "${origin:-}" ] && [ "$img" != "unknown" ]; then
     # The sha follows a colon, never a slash: the registry and the repository name
     # sit in front of it. With a slash in the pattern the substitution matched nothing,
     # so this whole comparison was dead code - the log line printed a stale sha next to
@@ -153,7 +158,7 @@ for entry in $BOTS; do
     imgsha=$(echo "$img" | sed -n "s#.*:$CHANNEL-\([0-9a-f]\{7\}\).*#\1#p")
     if [ -z "$imgsha" ]; then
       track+=("cannot read the build sha from the image tag: $img")
-    elif [ "$imgsha" != "${head:0:7}" ]; then
+    elif [ "$imgsha" != "${origin:0:7}" ]; then
       # A sha mismatch on its own is not staleness. deploy.yml skips documentation and
       # test paths, so for those commits no image is ever built and the tag legitimately
       # trails HEAD. Only a change that would land inside the image counts.
@@ -172,13 +177,13 @@ for entry in $BOTS; do
         image_paths=$(dockerfile_repo_paths "$d/Dockerfile")
         if [ -z "$image_paths" ]; then
           # Cannot read the recipe. Report everything rather than quietly declaring it fine.
-          stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" 2>/dev/null | tr '\n' ' ')
+          stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$origin" 2>/dev/null | tr '\n' ' ')
         else
           # The prefix comes straight from a COPY line, so it carries the slash the recipe wrote:
           # "src/". Appending "/*" to that yields "src//*", which matches nothing at all - the
           # condition looks right and never fires, which is the failure mode this whole file is
           # about. Trailing slashes are stripped first, then the match is exact-or-under.
-          stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$head" 2>/dev/null \
+          stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$origin" 2>/dev/null \
             | while IFS= read -r changed; do
                 [ -n "$changed" ] || continue
                 for prefix in $image_paths; do
@@ -193,9 +198,9 @@ for entry in $BOTS; do
               done)
         fi
         if [ -n "$stale" ]; then
-          track+=("image $imgsha is older than HEAD ${head:0:7}, unbuilt: $stale")
+          track+=("image $imgsha is older than origin/main ${origin:0:7}, unbuilt: $stale")
         else
-          log "IMG OK $bot (image $imgsha vs HEAD ${head:0:7}: docs, tests and CI only)"
+          log "IMG OK $bot (image $imgsha vs origin/main ${origin:0:7}: docs, tests and CI only)"
         fi
       fi
     fi
