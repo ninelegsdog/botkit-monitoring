@@ -39,7 +39,7 @@ jobs:
         run: |
           find grafana -name '*.json' -print0 | xargs -0 -n1 python -m json.tool --sort-keys
       - name: yamllint
-        uses: ibiqlik/action-yamllint@v3
+        uses: ibiqlik/action-yamllint@2576378a8e339169678f9939646ee3ee325e845c  # v3
         with:
           config_file: .yamllint.yml
 
@@ -111,8 +111,12 @@ jobs:
           # leaks found" with exit 0 - a green gate that inspected nothing. Then the image
           # pull failed on the runner while the identical scan passed locally. The runner
           # owns its own workspace, so this form has no ownership question to get wrong.
+          curl -sSfL -o /tmp/gitleaks_checksums.txt \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           curl -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          expected=$(awk -v f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" '{n=$2; sub(/^\*/,"",n); if (n==f) print $1}' /tmp/gitleaks_checksums.txt)
+          echo "$expected  /tmp/gitleaks.tar.gz" | sha256sum -c -
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           /tmp/gitleaks version
           # --verbose so a future red run says which rule and which commit, not just "leaks
