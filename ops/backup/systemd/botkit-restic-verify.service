@@ -1,0 +1,12 @@
+[Unit]
+Description=Quarterly deep restic check (read data + restore drill)
+After=network-online.target
+[Service]
+Type=oneshot
+# restic берёт каталог кэша из $HOME/$XDG_CACHE_HOME. Юниты выполняются как root
+# без Environment= и без HOME в окружении, каждый запуск печатал
+# "unable to open cache: neither $XDG_CACHE_HOME nor $HOME are defined".
+Environment=HOME=/root
+ExecStart=/usr/local/sbin/botkit-restic-verify
+Nice=10
+TimeoutStartSec=1h

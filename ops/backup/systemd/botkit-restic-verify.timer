@@ -1,0 +1,10 @@
+[Unit]
+Description=Quarterly deep restic check of the offsite repositories
+[Timer]
+# Ежеквартально: 1-е число 01/04/07/10 в 03:00 UTC - между потоками бэкапа
+# (data 00:30/06:30, monitor 01:00/07:00), чтобы не конкурировать за SFTP-канал.
+OnCalendar=*-01,04,07,10-01 03:00:00
+Persistent=true
+AccuracySec=1h
+[Install]
+WantedBy=timers.target
