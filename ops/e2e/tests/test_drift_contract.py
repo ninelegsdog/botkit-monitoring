@@ -55,6 +55,15 @@ DOCKERFILE_SELECTIVE = """FROM python:3.12-slim
 COPY pyproject.toml .
 COPY src/ src/
 """
+DEPLOY_YAML = """name: deploy
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/**'
+"""
 DOCKERFILE_WHOLE_REPO = """FROM python:3.12-slim
 COPY pyproject.toml .
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
@@ -304,6 +313,8 @@ def _seed_with_recipe(box: Sandbox, dockerfile: str, second_commit: dict[str, st
             RUNTIME_PATH: "print('v1')\n",
             "Dockerfile": dockerfile,
             COMPOSE_PATH: "services: {}\n",
+            # как на проде: deploy.yml с paths-ignore лежит в репо с первой сборки
+            ".github/workflows/deploy.yml": DEPLOY_YAML,
         },
         "runtime: first build",
     )
@@ -521,6 +532,33 @@ def test_workflow_only_change_is_not_reported_as_unbuilt(sandbox: Sandbox) -> No
     log = sandbox.log_text()
     assert "IMG OK" in log, log
     assert "unbuilt:" not in log, f"a CI-only commit was reported as unbuilt: {log}"
+
+
+def test_workflow_only_change_is_not_unbuilt_under_whole_repo_recipe(sandbox: Sandbox) -> None:
+    """Боты с COPY . . (reminder, membership, bookingbot): CI-only коммит не дрейфует.
+
+    Их Dockerfile копирует весь репозиторий, поэтому .github/ технически попадает в
+    слой образа - но deploy.yml его не собирает (paths-ignore), и тег легитимно
+    отстаёт. Без этого правила три бота дрейфовали навсегда после волны пиннинга
+    workflow 06.10: построить образ из одного .github-коммита нечем и не нужно.
+    """
+    second = {WORKFLOW_PATH: DEPLOY_YAML + "# pinned by sha\n"}
+    image_sha = _seed_with_recipe(sandbox, DOCKERFILE_WHOLE_REPO, second)
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "IMG OK" in log, log
+    assert "unbuilt:" not in log, f"a CI-only commit was reported as unbuilt: {log}"
+
+
+def test_docs_only_commit_is_not_unbuilt_under_whole_repo_recipe(sandbox: Sandbox) -> None:
+    """README под **.md deploy.yml тоже не собирает - образ отстаёт законно."""
+    image_sha = _seed_with_recipe(sandbox, DOCKERFILE_WHOLE_REPO, {DOCS_PATH: "docs\n"})
+    sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "IMG OK" in log, log
+    assert "unbuilt:" not in log, f"a docs-only commit was reported as unbuilt: {log}"
 
 
 def test_runtime_commit_is_reported_as_unbuilt(sandbox: Sandbox) -> None:

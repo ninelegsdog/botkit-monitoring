@@ -105,6 +105,17 @@ dockerfile_repo_paths() {
   ' "$file" | sort -u
 }
 
+# Пути, для которых deploy.yml не запускает сборку (paths-ignore). Изменение только
+# внутри них не может попасть в образ, потому что образ для него не собирается:
+# тег легитимно отстаёт, и дрейфом это не является. Список читается из самого
+# deploy.yml - рукописный здесь уже врал (та же история, что у image_paths).
+deploy_ignore_patterns() {
+  local file="$1"
+  [ -r "$file" ] || return 0
+  sed -n '/paths-ignore:/,/^[^[:space:]]/p' "$file" \
+    | sed -n "s/^[[:space:]]*-[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p"
+}
+
 rc_total=0
 for entry in $BOTS; do
   bot="${entry%%:*}"
@@ -183,6 +194,14 @@ for entry in $BOTS; do
         # an unbuilt runtime change on all nine bots, and the drift check went red for a change
         # that, for seven of them, could not have altered the image at all.
         image_paths=$(dockerfile_repo_paths "$d/Dockerfile")
+        # deploy.yml не собирает образ для paths-ignore путей: даже когда COPY . .
+        # включает .github/ или *.md в образ, сборка для них не запускается и тег
+        # отстаёт законно. Без этого боты с COPY . . (reminder, membership,
+        # bookingbot) дрейфовали навсегда после волны workflow-правок.
+        deploy_ignore=()
+        while IFS= read -r pat; do
+          [ -n "$pat" ] && deploy_ignore+=("$pat")
+        done < <(deploy_ignore_patterns "$d/.github/workflows/deploy.yml")
         if [ -z "$image_paths" ]; then
           # Cannot read the recipe. Report everything rather than quietly declaring it fine.
           stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$origin" 2>/dev/null | tr '\n' ' ')
@@ -194,6 +213,12 @@ for entry in $BOTS; do
           stale=$(git -c safe.directory="$d" -C "$d" diff --name-only "$imgsha..$origin" 2>/dev/null \
             | while IFS= read -r changed; do
                 [ -n "$changed" ] || continue
+                skip=0
+                for pat in ${deploy_ignore[@]+"${deploy_ignore[@]}"}; do
+                  # shellcheck disable=SC2053 # glob-шаблон paths-ignore, а не литерал
+                  if [[ "$changed" == $pat ]]; then skip=1; break; fi
+                done
+                [ "$skip" = 1 ] && continue
                 for prefix in $image_paths; do
                   if [ "$prefix" = "." ]; then
                     printf '%s ' "$changed"; break
