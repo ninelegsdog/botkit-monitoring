@@ -8,6 +8,6 @@ pytest==9.0.1
 # PySocks; with only PySocks installed it works but warns at construction that
 # "proxy argument will be ignored", which is false and would send the next
 # reader hunting for a bug that is not there.
-python-socks==2.7.1
+python-socks==3.1.1
 # requests was here to call getMe with a bot token and to POST alerts. The
 # runner no longer reads tokens, and the alert POST moved to stdlib urllib.
