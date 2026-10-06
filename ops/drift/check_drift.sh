@@ -32,6 +32,7 @@ STATE_DIR=/var/backups/botkit-drift
 WATCH_DIR="$STATE_DIR/watch"
 ALERTED_DIR="$STATE_DIR/alerted"
 LOG=/var/log/botkit-drift.log
+TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_drift.prom}
 AM_URL="$ALERTMANAGER_ALERTS_URL"
 THROTTLE=21600   # 6h между повторами алерта
 GRACE_S=1800     # 30 мин окно rollout для tracking-mismatch
@@ -44,6 +45,13 @@ mkdir -p "$STATE_DIR" "$WATCH_DIR" "$ALERTED_DIR"
 now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 now_s() { date +%s; }
 log() { echo "$(now) $*" >> "$LOG"; }
+
+# 3.4: состояние клона каждого бота как метрика — чтобы grafana/absent() видели
+# дрейф, а не только /var/log. Пишется по строке на бота, файл собирает цикл for.
+METRICS_TMP=$(mktemp) || exit 1
+emit_drift() { # $1=1|0 — 0 только за грейсом (DRIFT) или в CRITICAL
+  echo "botkit_drift_ok{bot=\"$bot\"} $1" >> "$METRICS_TMP"
+}
 
 send_alert() { # $1=b $2=sev $3=reason
   local bot="$1" sev="$2" reason="$3"
@@ -306,6 +314,7 @@ for entry in $BOTS; do
   if [ ${#critical[@]} -gt 0 ]; then
     log "CRITICAL $bot: ${critical[*]} (img=$img)"
     send_alert "$bot" critical "${critical[*]}"
+    emit_drift 0
     rc_total=1
     continue
   fi
@@ -316,21 +325,40 @@ for entry in $BOTS; do
     if [ ! -f "$wf" ]; then
       echo "$(now_s)" > "$wf"
       log "WATCH start $bot: ${track[*]}"
+      emit_drift 1
     else
       t0=$(cat "$wf")
       age=$(( $(now_s) - t0 ))
       if [ "$age" -gt "$GRACE_S" ]; then
         log "DRIFT $bot (${age}s > grace): ${track[*]} (img=$img head=${head:-na})"
         send_alert "$bot" warning "${track[*]}"
+        emit_drift 0
         rc_total=1
       else
         log "WATCH hold $bot (${age}s < grace): ${track[*]}"
+        emit_drift 1
       fi
     fi
   else
     rm -f "$WATCH_DIR/$bot"
     log "OK $bot (head=${head:-na} img=$img health=200)"
+    emit_drift 1
   fi
 done
+
+# атомарная запись метрик (mktemp даёт 600 — node-exporter от nobody не прочитает)
+out=$(mktemp "${TEXTFILE}.XXXXXX") && {
+  {
+    echo "# HELP botkit_drift_ok 1 if the bot prod clone is clean (no drift beyond grace, no critical)"
+    echo "# TYPE botkit_drift_ok gauge"
+    cat "$METRICS_TMP"
+    echo "# HELP botkit_drift_last_check_timestamp_seconds Unix time of the last drift check run"
+    echo "# TYPE botkit_drift_last_check_timestamp_seconds gauge"
+    echo "botkit_drift_last_check_timestamp_seconds $(now_s)"
+  } > "$out"
+  chmod 644 "$out"
+  mv -f "$out" "$TEXTFILE"
+}
+rm -f "$METRICS_TMP"
 
 exit "$rc_total"

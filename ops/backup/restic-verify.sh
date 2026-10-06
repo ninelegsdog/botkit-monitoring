@@ -53,6 +53,8 @@ write_metrics() {
     done
   } > "$tmp"
   mv -f "$tmp" "$TEXTFILE"
+  # mktemp даёт 600, а node-exporter читает от nobody — без 644 метрики невидимы
+  chmod 644 "$TEXTFILE"
 }
 
 declare -A OK TS
