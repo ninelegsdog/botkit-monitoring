@@ -65,7 +65,7 @@ for stream in data monitor; do
     log "нет пароля $pw - $stream пропущен"
     OK[$stream]=0; failed=$((failed+1)); continue
   fi
-  log "поток $stream: check --read-data-subset=${SUBSET}%"
+  log "поток $stream: check --read-data-subset=$SUBSET"
   if restic -p "$pw" --repo "${REPO[$stream]}" check --read-data-subset="$SUBSET" \
        >"/tmp/restic-verify-$BASENAME-$stream.log" 2>&1; then
     OK[$stream]=1
