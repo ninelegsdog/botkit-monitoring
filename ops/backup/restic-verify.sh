@@ -21,7 +21,9 @@ PW_DIR=${PW_DIR:-/root/.botkit-backup}
 BACKUP_HOST=${BACKUP_HOST:-31.76.11.198}
 TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_backup_verify.prom}
 DRILL_DIR=${DRILL_DIR:-/var/lib/botkit-restore-drill}
-SUBSET=${SUBSET:-5}
+# restic 0.18: значение только в виде '5%' (или 'n/t'), голое '5' даёт
+# "check flag --read-data-subset has invalid value" и гасит проверку целиком.
+SUBSET=${SUBSET:-5%}
 
 _self=$(readlink -f "${BASH_SOURCE[0]}")
 BASENAME=$(basename "$_self")
