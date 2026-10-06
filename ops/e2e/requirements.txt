@@ -3,7 +3,7 @@
 # green can start failing on a Saturday with no code change of ours.
 telethon==1.45.0
 PyYAML==6.0.3
-pytest==9.0.1
+pytest==9.1.1
 # SOCKS backend for E2E_PROXY. Telethon prefers python-socks and falls back to
 # PySocks; with only PySocks installed it works but warns at construction that
 # "proxy argument will be ignored", which is false and would send the next
