@@ -2,6 +2,9 @@ name: e2e-smoke
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     timeout-minutes: 15
