@@ -13,7 +13,7 @@ STAGE_KEEP=14
 BOTS="membership bookingbot reminder leadgen store support delivery docuflow pricesentry"
 RUNMETRIC=/var/lib/node-exporter-textfile/botkit_backup_run.prom
 
-[ $# -ge 1 ] || { echo "$PREFIX用法: $0 {data|monitor|all}" >&2; exit 2; }
+[ $# -ge 1 ] || { echo "$PREFIX用法: $0 {data|cp|monitor|all}" >&2; exit 2; }
 exec 9>"$LOCK"
 flock -n 9 || { echo "$PREFIX уже выполняется, повтор пропущен"; exit 0; }
 
@@ -70,12 +70,14 @@ collect_paths() {
   local stream="$1" d f s
   PATHS=()
   if [ "$stream" = data ]; then
-    for d in /home/deploy/botkit-*/backups; do [ -d "$d" ] && PATHS+=("$d"); done
     for f in /home/deploy/botkit-monitoring/.env /home/deploy/reverse-proxy/.env /home/deploy/botkit-shared-redis/.env; do
       [ -f "$f" ] && PATHS+=("$f")
     done
     [ -d /usr/local/etc/botkit ] && PATHS+=(/usr/local/etc/botkit)
     [ -d "$STAGE" ] && PATHS+=("$STAGE")
+  elif [ "$stream" = cp ]; then
+    # сырые docker-cp копии ботов (backup_bots.sh) — отдельный репозиторий/пароль от data
+    for d in /home/deploy/botkit-*/backups; do [ -d "$d" ] && PATHS+=("$d"); done
   else
     local vols
     vols=$(for c in $(docker ps -a --format '{{.Names}}' 2>/dev/null | grep '^botkit-monitoring-'); do
@@ -90,12 +92,13 @@ run_stream() {
   local stream="$1" pw repo attempt rc=1
   case "$stream" in
     data)    pw="$PW_DIR/data.pw";    repo="sftp:botkit-backup@$BACKUP_HOST:/repo-data" ;;
+    cp)      pw="$PW_DIR/cp.pw";      repo="sftp:botkit-backup@$BACKUP_HOST:/repo-cp" ;;
     monitor) pw="$PW_DIR/monitor.pw"; repo="sftp:botkit-backup@$BACKUP_HOST:/repo-monitor" ;;
     *) die "неизвестный поток: $stream" ;;
   esac
   [ -r "$pw" ] || die "нет файла пароля $pw (создаётся при bootstrap)"
   [ -r "$KEY" ] || die "нет ключа $KEY"
-  command -v docker >/dev/null || [ "$stream" = data ] || die "docker недоступен"
+  command -v docker >/dev/null || [ "$stream" = data ] || [ "$stream" = cp ] || die "docker недоступен"
 
   local consistent_failures=0
   if [ "$stream" = data ]; then
@@ -119,7 +122,7 @@ run_stream() {
   fi
 
   log "поток $stream: retention"
-  if [ "$stream" = data ]; then
+  if [ "$stream" = data ] || [ "$stream" = cp ]; then
     # --retry-lock: если предыдущий запуск убили и остался stale-lock, forget падал
     # с кодом 11, retention не отрабатывал, и снапшоты копились без границы. Молча
     # ждать безопаснее, чем завершаться: реальный конкурент всё равно держит lock.
@@ -135,8 +138,8 @@ run_stream() {
 }
 
 case "$1" in
-  all) run_stream data; run_stream monitor ;;
-  data|monitor) run_stream "$1" ;;
+  all) run_stream data; run_stream cp; run_stream monitor ;;
+  data|cp|monitor) run_stream "$1" ;;
   *) die "неизвестный аргумент: $1" ;;
 esac
 log "итог: успешно"

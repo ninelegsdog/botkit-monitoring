@@ -28,6 +28,7 @@ ADR 0001 перенёс offsite-бэкап на restic поверх SFTP и на
 |---|---|
 | RPO, локальные копии (`backup-bots.timer`) | **6 ч** — 00:00, 06:00, 12:00, 18:00 UTC |
 | RPO, offsite `data` (`botkit-restic-data.timer`) | **6 ч** — 00:30, 06:30, 12:30, 18:30 UTC |
+| RPO, offsite `cp` (`botkit-restic-cp.timer`, сырые docker-cp копии) | **6 ч** — 00:45, 06:45, 12:45, 18:45 UTC |
 | RPO, offsite `monitor` (`botkit-restic-monitor.timer`) | **6 ч** — 01:00, 07:00, 13:00, 19:00 UTC |
 | Retention | `data` 14 дней / 8 недель / 6 месяцев; `monitor` 3 / 2 / 2 |
 | Объём репозиториев на мониторе | `repo-data` 1.9 МБ, `repo-monitor` 533 МБ; диск 9.3 ГБ из 25 ГБ (40%) |

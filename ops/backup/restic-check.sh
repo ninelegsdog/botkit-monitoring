@@ -21,8 +21,10 @@ RETRIES=3
 
 declare -A REPO MAXAGE
 REPO[data]="sftp:botkit-backup@$BACKUP_HOST:/repo-data"
+REPO[cp]="sftp:botkit-backup@$BACKUP_HOST:/repo-cp"
 REPO[monitor]="sftp:botkit-backup@$BACKUP_HOST:/repo-monitor"
 MAXAGE[data]=$MAXAGE_DATA
+MAXAGE[cp]=$MAXAGE_DATA
 MAXAGE[monitor]=$MAXAGE_MONITOR
 
 tmp=$(mktemp) || { echo "$PREFIX не удалось создать временный файл" >&2; exit 1; }
@@ -34,7 +36,7 @@ tmp=$(mktemp) || { echo "$PREFIX не удалось создать времен
 } > "$tmp"
 
 bad=()
-for stream in data monitor; do
+for stream in data cp monitor; do
   pw="$PW_DIR/$stream.pw"
   last=""
   for _ in $(seq 1 $RETRIES); do

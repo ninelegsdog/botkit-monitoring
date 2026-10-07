@@ -1,0 +1,8 @@
+[Unit]
+Description=Offsite cp (docker-cp копии ботов) backup every 6 hours
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:45:00
+Persistent=true
+RandomizedDelaySec=120
+[Install]
+WantedBy=timers.target

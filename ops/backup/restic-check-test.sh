@@ -17,6 +17,7 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 mkdir -p "$tmpdir/bin" "$tmpdir/pw"
 echo pw > "$tmpdir/pw/data.pw"
+echo pw > "$tmpdir/pw/cp.pw"
 echo pw > "$tmpdir/pw/monitor.pw"
 
 # $1 = consistent_failures, $2 = возраст последнего прогона в секундах
