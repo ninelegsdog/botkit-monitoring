@@ -80,7 +80,8 @@ Git-based offsite (`ninelegsdog/botkit-backups-offsite`) удалён. Прич�
 Транспорт — SFTP, не git и не публичное хранилище:
 
 ```
-sftp:botkit-backup@31.76.11.198:/repo-data      # боты + секреты, пароль №1
+sftp:botkit-backup@31.76.11.198:/repo-data      # согласованные снимки ботов, env, stage — пароль №1
+sftp:botkit-backup@31.76.11.198:/repo-cp        # сырые docker-cp копии ботов — пароль №3, отдельный!
 sftp:botkit-backup@31.76.11.198:/repo-monitor   # метрики, пароль №2 (другой!)
 ```
 
@@ -90,7 +91,8 @@ sftp:botkit-backup@31.76.11.198:/repo-monitor   # метрики, пароль �
 
 | поток | содержимое | retention | расписание |
 |-------|-----------|-----------|------------|
-| `data` | 9 ботов (online-backup API), локальные копии, Redis RDB, 12 `.env` | 14/8/6 | `00,06,12,18:30` |
+| `data` | согласованные снимки ботов (online-backup API), stage, 12 `.env`, `/usr/local/etc/botkit` | 14/8/6 | `00,06,12,18:30` |
+| `cp` | сырые docker-cp копии ботов + Redis RDB (`backup_bots.sh`) | 14/8/6 | `00,06,12,18:45` |
 | `monitor` | тома prometheus/grafana/alertmanager/loki/minio/tempo + конфиг | 3/2 | `01,07,13,19:00` |
 
 Согласованность важнее скорости: `restic-backup.sh` снимает каждую БД через
@@ -122,8 +124,9 @@ python3 -c "import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute('pragm
 
 ## Пароли репозиториев
 
-Два независимых пароля, по одному на репозиторий. Лежат только на проде:
-`/root/.botkit-backup/data.pw` и `/root/.botkit-backup/monitor.pw` (600).
+Три независимых пароля, по одному на репозиторий. Лежат только на проде:
+`/root/.botkit-backup/data.pw`, `/root/.botkit-backup/cp.pw`, `/root/.botkit-backup/monitor.pw` (600).
+`cp.pw` отдельный — компрометация одного пароля не открывает другой репозиторий.
 **Второго экземпляра паролей нет нигде — потеря прода означает потерю бэкапов.**
 Шаблон параметров и процедура bootstrap: `ops/backup/restic.env.example`.
 
@@ -151,5 +154,5 @@ scp ops/backup/restic-backup.sh ops/backup/restic-check.sh root@2.27.204.95:/usr
 scp ops/lib/*                                                 root@2.27.204.95:/usr/local/lib/
 scp ops/backup/systemd/botkit-restic-*           root@2.27.204.95:/etc/systemd/system/
 ssh root@2.27.204.95 'chmod 750 /usr/local/sbin/botkit-restic-*; systemctl daemon-reload; \
-  systemctl enable --now botkit-restic-data.timer botkit-restic-monitor.timer botkit-restic-check.timer'
+  systemctl enable --now botkit-restic-data.timer botkit-restic-cp.timer botkit-restic-monitor.timer botkit-restic-check.timer'
 ```

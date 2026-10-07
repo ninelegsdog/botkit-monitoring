@@ -29,6 +29,7 @@ _self=$(readlink -f "${BASH_SOURCE[0]}")
 BASENAME=$(basename "$_self")
 declare -A REPO
 REPO[data]="sftp:botkit-backup@$BACKUP_HOST:/repo-data"
+REPO[cp]="sftp:botkit-backup@$BACKUP_HOST:/repo-cp"
 REPO[monitor]="sftp:botkit-backup@$BACKUP_HOST:/repo-monitor"
 
 log() { echo "$PREFIX $*"; }
@@ -43,7 +44,7 @@ write_metrics() {
   {
     echo "# HELP botkit_backup_verify_ok 1 if the quarterly deep restic check (read-data + restore drill) passed"
     echo "# TYPE botkit_backup_verify_ok gauge"
-    for s in data monitor; do
+    for s in data cp monitor; do
       echo "botkit_backup_verify_ok{stream=\"$s\"} ${OK[$s]:-0}"
     done
     echo "# HELP botkit_backup_verify_last_timestamp_seconds Unix time of the last quarterly deep check"
@@ -61,7 +62,7 @@ declare -A OK TS
 failed=0
 now=$(date +%s)
 
-for stream in data monitor; do
+for stream in data cp monitor; do
   pw="$PW_DIR/$stream.pw"
   if [ ! -f "$pw" ]; then
     log "нет пароля $pw - $stream пропущен"
