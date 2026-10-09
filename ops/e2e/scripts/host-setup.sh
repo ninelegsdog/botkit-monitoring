@@ -81,10 +81,10 @@ if [ ! -f "$ENV" ]; then
 # E2E runner environment. root:botkit-e2e 0640.
 # TG_PHONE is deliberately NOT here: under strategy C the session is signed in
 # once on an admin machine and the phone number never reaches the host.
-# E2E_ALERT_URL is intentionally empty (owner decision B5=c): the E2E host cannot
-# reach the production Alertmanager, and the runner prints FATAL and writes
-# <bot>.fail on every failure, so nothing fails silently - it just does not reach
-# Telegram until the S phase moves Alertmanager to the monitor.
+# E2E_ALERT_URL reaches Alertmanager via the dedicated e2e-am-tunnel
+# (botkit-e2e-am-tunnel.service: 127.0.0.1:19093 -> prod 127.0.0.1:9093).
+# Owner decision 10.10.2026: filled in - the tunnel narrows the surface
+# instead of widening it (9093 stays loopback-only, permitopen=9093 only).
 #
 # Fill in the two values below, then: chmod 0640 $ENV
 TG_API_ID=
@@ -96,7 +96,7 @@ E2E_SESSION_DIR=/var/lib/botkit-e2e/session
 E2E_SESSION_NAME=botkit-e2e
 E2E_STATUS_DIR=/var/lib/botkit-e2e/status
 E2E_SCENARIOS=$CLONE/ops/e2e/scenarios.yml
-E2E_ALERT_URL=
+E2E_ALERT_URL=http://127.0.0.1:19093/api/v2/alerts
 E2E_PROXY=socks5:127.0.0.1:11080
 EOF
   run chown "root:$RUNNER_USER" "$ENV"
