@@ -1,9 +1,9 @@
 # botkit-monitoring
 
-Мониторинг 8 ботов BotKit: Prometheus + Alertmanager + Grafana (host-network, только 127.0.0.1).
+Мониторинг 9 ботов BotKit: Prometheus + Alertmanager + Grafana (host-network, только 127.0.0.1).
 
 ## Стек
-- **Prometheus** `127.0.0.1:9090` — скрайпит `/metrics` ботов на портах 8081–8088
+- **Prometheus** `127.0.0.1:9090` — скрайпит `/metrics` ботов на портах 8081–8089
 - **Alertmanager** `127.0.0.1:9093` — алерты → Telegram (`telegram_configs`)
 - **Grafana** `127.0.0.1:3000` — дашборд «BotKit Overview» (переменная instance), доступ через SSH-туннель
 - **Loki** `127.0.0.1:3100` — логи Docker-контейнеров (Promtail), хранение → MinIO S3 (Sprint 8)
@@ -142,4 +142,4 @@ docker compose up -d
 Implementation code was generated with AI coding agents under human-led engineering control.
 
 Полное описание процесса, шаблон `AGENTS.md` и чек-листы ревью AI-кода и секретов —
-в репозитории [agentic-development-playbook](https://github.com/ninelegsdog).
+в репозитории [agentic-development-playbook](https://github.com/ninelegsdog/agentic-development-playbook).
