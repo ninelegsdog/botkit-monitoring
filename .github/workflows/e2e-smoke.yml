@@ -21,9 +21,9 @@ jobs:
         run: |
           set -euo pipefail
           install -m 600 /dev/null /tmp/id_deploy
-          printf '%s' "$SSH_KEY" > /tmp/id_deploy
+          printf '%s\n' "$SSH_KEY" > /tmp/id_deploy
           install -m 600 /dev/null /tmp/id_jump
-          printf '%s' "$JUMP_KEY" > /tmp/id_jump
+          printf '%s\n' "$JUMP_KEY" > /tmp/id_jump
           chmod 600 /tmp/id_deploy /tmp/id_jump
           # Прямой путь к prod:22 закрыт nftables-листом прода (allow-list без общих
           # ranges GitHub) — единственный маршрут через монитор (31.76.11.198),
