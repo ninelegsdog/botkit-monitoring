@@ -30,10 +30,13 @@ jobs:
           # чей IP и UFW, и nftables пропускают. JUMP_KEY на мониторе ограничен
           # permitopen 2.27.204.95:22 + forced command /bin/false: форвард на прод
           # возможен, шелл на мониторе — нет.
+          # smoke_all.sh пишет лог в /var/log (нужен root); GH-прогон идёт под
+          # $PROD_USER (deploy), поэтому лог/alerted перенаправляются в домашний
+          # каталог деплоя (поддерживается самим скриптом через BOTKIT_SMOKE_*).
           ssh -i /tmp/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
               -o "ProxyCommand=ssh -i /tmp/id_jump -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -W %h:%p deploy@$JUMP_HOST" \
               "$PROD_USER@$PROD_HOST" \
-              'cd /home/deploy/botkit-monitoring && ./ops/e2e/smoke_all.sh'
+              'export BOTKIT_SMOKE_LOG=/home/deploy/botkit-smoke/smoke.log BOTKIT_SMOKE_ALERTED_DIR=/home/deploy/botkit-smoke/alerted; cd /home/deploy/botkit-monitoring && ./ops/e2e/smoke_all.sh'
       - name: Report
         if: failure()
         run: 'echo "::error::SMOKE_ALL FAILED — проверь деплой и повтори: gh workflow run e2e-smoke"'
