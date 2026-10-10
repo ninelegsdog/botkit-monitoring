@@ -16,12 +16,22 @@ jobs:
           SSH_KEY: ${{ secrets.SSH_KEY }}
           PROD_HOST: ${{ secrets.PROD_HOST }}
           PROD_USER: ${{ secrets.PROD_USER }}
+          JUMP_KEY: ${{ secrets.JUMP_KEY }}
+          JUMP_HOST: ${{ secrets.JUMP_HOST }}
         run: |
           set -euo pipefail
           install -m 600 /dev/null /tmp/id_deploy
           printf '%s' "$SSH_KEY" > /tmp/id_deploy
-          chmod 600 /tmp/id_deploy
-          ssh -i /tmp/id_deploy -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+          install -m 600 /dev/null /tmp/id_jump
+          printf '%s' "$JUMP_KEY" > /tmp/id_jump
+          chmod 600 /tmp/id_deploy /tmp/id_jump
+          # Прямой путь к prod:22 закрыт nftables-листом прода (allow-list без общих
+          # ranges GitHub) — единственный маршрут через монитор (31.76.11.198),
+          # чей IP и UFW, и nftables пропускают. JUMP_KEY на мониторе ограничен
+          # permitopen 2.27.204.95:22 + forced command /bin/false: форвард на прод
+          # возможен, шелл на мониторе — нет.
+          ssh -i /tmp/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              -o "ProxyCommand=ssh -i /tmp/id_jump -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -W %h:%p deploy@$JUMP_HOST" \
               "$PROD_USER@$PROD_HOST" \
               'cd /home/deploy/botkit-monitoring && ./ops/e2e/smoke_all.sh'
       - name: Report
