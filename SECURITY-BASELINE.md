@@ -103,4 +103,23 @@ ClientAlive 300/3, LogLevel VERBOSE); `51-jumphost.conf` — `Match User deploy`
   (`172.17.0.1:4318`); извне закрыт UFW+nftables (приватные подсети). Loopback сломал бы
   телеметрию. Требование «127.0.0.1 ИЛИ явные правила» выполнено явными правилами nftables.
 - **promtail** слушает `*:9080/9097`, пушит в локальный Loki `127.0.0.1:3100`; снаружи 9080/9097
-  закрыт nftables-листом drop (см. п.1). Локальный скрейп/health не затронут.
+  закрыт nftables-листом drop (см. п.1). Локальный скрейп/health не затронут.### 6. e2e-smoke (GH Actions → прод) — починен 10.10 через монитор-джамп
+
+- **Корень (c 10.09):** `/etc/nftables.conf` на проде дропает `22` для всех вне allow-list;
+  общих ranges GitHub-раннеров там нет и _не будет_ (динамические Azure-подсети).
+  Поэтому прямой ssh GH→прод:22 невозможен.
+- **Решение 10.10 (выбор владельца):** e2e-smoke идёт через монитор 31.76.11.198
+  (тяжёлый jumphost). В workflow `e2e-smoke.yml`:
+  - внешний ssh — прежний `SSH_KEY` на прод, но `ProxyCommand` через монитор;
+  - новый выделенный ключ CI `JUMP_KEY` (секрет GH) с **жёстким ограничением** в
+    `/home/deploy/.ssh/authorized_keys` на мониторе:
+    `permitopen="2.27.204.95:22",command="/bin/false",no-agent-forwarding,no-X11-forwarding,no-pty,no-user-rc`
+    — форвард только на прод:22, шелл на мониторе запрещён (verified 10.10);
+  - `JUMP_HOST` = `31.76.11.198` (секрет GH).
+- **Джуна:** при переносе ключа в GH-секрет `gh secret set` срезает завершающий `\n`,
+  OpenSSH не парсит такой ключ (`error in libcrypto`) → в workflow обязателен
+  `printf '%s\n'` при записи ключей в файлы.
+- **Пользователь:** smoke_all.sh пишет в `/var/log` (root), GH-прогон идёт под `deploy` →
+  workflow экспортирует `BOTKIT_SMOKE_LOG`/`BOTKIT_SMOKE_ALERTED_DIR` в `/home/deploy/botkit-smoke/`.
+- **Итог:** `gh workflow run e2e-smoke` → `SMOKE_ALL: PASS` (9/9 ботов, 10.10 02:41).
+  Локальный `botkit-smoke.timer` (root, /var/log) работает независимо, каждый 30 мин.
