@@ -1,4 +1,4 @@
-# SECURITY-BASELINE prod 2.27.204.95 (bump 2026-09-11)
+# SECURITY-BASELINE prod 2.27.204.95 (bump 2026-10-11; периметр сверен по живому состоянию)
 
 ## Аудит 11.09 — статусы
 | Контроль | Статус |
@@ -6,7 +6,7 @@
 | SSH: PasswordAuthentication no + PermitRootLogin prohibit-password | ✅ |
 | UFW: только 22/tcp 80 443 37426/udp | ✅ |
 | fail2ban sshd+recidive (maxretry 3, bantime 1h→7d recidive) | ✅ |
-| fail2ban ignoreip: 31.76.11.198 5.144.123.123 5.144.122.222 | ✅ ДОБАВЛЕН (корень блокировки predator) |
+| fail2ban ignoreip: 31.76.11.198 5.144.123.123 5.144.122.222 (снимок 11.09) | ✅ ДОБАВЛЕН (корень блокировки predator); 5.144.* удалены из периметра 10.10 |
 | Docker: user 1001:1001, cap_drop ALL, no-new-privileges, tmpfs /tmp | ✅ 9/9 ботов (compose.yml) |
 | Боты bind 127.0.0.1 (не экспонированы) | ✅ ss -tlnp |
 | nginx TLS 1.2/1.3, fullchain certs | ✅ |
@@ -52,9 +52,9 @@ ip saddr { 172.30.0.0/16, 172.31.0.0/16, 192.168.*.0/20 } tcp dport { 4317, 4318
 ```
 
 Источники 22: `10.8.1.0/24` (VPN awg0), `31.76.11.198` (монитор), `109.236.105.237` (predator),
-`81.201.16.75` + `109.236.105.106` (прежние/резервные входы), `5.144.123.123`/`5.144.122.222`
-(владелец — только в UFW, в nftables не добавлены сознательно: UFW их пропускает, nftables 22
-лимитирован перечисленным, для владельца путь = VPN или монитор).
+`81.201.16.75` + `109.236.105.106` (прежние/резервные входы). Список nftables и UFW совпадают
+(сверено по живому периметру 11.10). Мёртвые `5.144.123.123`/`5.144.122.222` (мобильная сеть
+ASUS-1, 0 пакетов за всю историю) удалены из обоих списков 10.10 — путь владельца = VPN или монитор.
 
 - **Урок 10.10:** `tcp dport 22 drop` в nftables (без нового источника) даёт `connect timeout`,
   НЕ отказ — из-за него e2e-smoke (GH Actions) и `predator→prod:22` выглядели как «провайдер
@@ -67,8 +67,6 @@ ip saddr { 172.30.0.0/16, 172.31.0.0/16, 192.168.*.0/20 } tcp dport { 4317, 4318
 22/tcp ALLOW IN 31.76.11.198        # ssh: monitor (jump)
 22/tcp ALLOW IN 109.236.105.237     # ssh: predator
 22/tcp ALLOW IN 10.8.1.0/24         # ssh: vpn awg0
-22/tcp ALLOW IN 5.144.123.123       # ssh: owner1
-22/tcp ALLOW IN 5.144.122.222       # ssh: owner2
 22/tcp ALLOW IN 81.201.16.75        # ssh: legacy entry (nftables list)
 22/tcp ALLOW IN 109.236.105.106     # ssh: legacy entry (nftables list)
 ```
