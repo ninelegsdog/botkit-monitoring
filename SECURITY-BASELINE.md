@@ -121,3 +121,21 @@ ClientAlive 300/3, LogLevel VERBOSE); `51-jumphost.conf` — `Match User deploy`
   workflow экспортирует `BOTKIT_SMOKE_LOG`/`BOTKIT_SMOKE_ALERTED_DIR` в `/home/deploy/botkit-smoke/`.
 - **Итог:** `gh workflow run e2e-smoke` → `SMOKE_ALL: PASS` (9/9 ботов, 10.10 02:41).
   Локальный `botkit-smoke.timer` (root, /var/log) работает независимо, каждый 30 мин.
+
+### 7. Drill 10.10–11.10: временные ключи на мониторе (отзыв после drill)
+
+Временный доступ для restore-drill с чистой машины **asus-1** (решение владельца
+10.10; jump добавлен 11.10 по команде «делай»). **Отзывается сразу после drill.**
+
+| Ключ | Где в `authorized_keys` | Ограничения | Статус |
+|---|---|---|---|
+| `id_ed25519_drill` (`drill-backup@asus-1`) | `/srv/botkit-backup/.ssh/authorized_keys` (sftp-репозитории) | `restrict`; только sftp `internal-sftp -d /` | 10.10 → отзыв после drill |
+| `id_ed25519_drill` (тот же) | `/home/deploy/.ssh/authorized_keys` (jump на прод) | `permitopen="2.27.204.95:22",command="/bin/false",no-agent-forwarding,no-X11-forwarding,no-pty,no-user-rc` — форвард только на прод:22, шелл запрещён | добавлено 11.10 (бэкап `authorized_keys.bak-drill-20261110`) → отзыв после drill |
+
+- На asus-1 цепочка: `bk-mon` (sftp-репо), `bk-mon-jump` (deploy@монитор, drill-ключ),
+  `bk-prod` (root@прод через `prod_key`; pin host-ключей `~/.ssh/known_hosts_prod`).
+  Проверено 11.10: `whoami` → `root`.
+- Резерв чтения прода (когда jump отозван): через predator (канон доступа — RESUME).
+- **Отзыв (steps):** удалить обе строки `drill-backup@asus-1` из `authorized_keys`
+  монитора (sftp + deploy); на asus-1 убрать алиасы `bk-mon-jump`/`bk-prod` из
+  `~/.ssh/config`; проверка: `ssh -o BatchMode=yes bk-prod "whoami"` → отказ.
