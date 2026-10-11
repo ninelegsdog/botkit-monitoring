@@ -106,4 +106,45 @@ while IFS= read -r -d '' script; do
   echo "  ok: ${script#"$REPO"/} parses"
 done < <(find "$REPO/ops" -name '*.sh' -print0 | sort -z)
 
+echo "=== 4d. bot data mounts must stay owned by the container user ==="
+# The bulk `chown -R deploy:deploy` that normalises this repository has, three times now,
+# recursed into the *bot* clones and taken data/ and backups/ from 1001:1001 (the compose
+# `user: "1001:1001"`) to 1000:1000 (deploy). The bots then could not open their own
+# database while /health still answered 200, so the outage was invisible from outside -
+# it only surfaced when a container was recreated.
+#
+# compose pins the runtime user but not the directory owner, so this is the check that
+# notices. It is cheap, runs on every canon sync, and fails the sync instead of leaving a
+# half-broken fleet behind. deploy_rollout.sh's preflight still guards a single rollout;
+# this guards the fleet even when nothing was being rolled out.
+_fleet_bot_roots() {
+  local d
+  for d in /home/deploy/botkit-*; do
+    [ -d "$d/data" ] && printf '%s\n' "$d"
+  done
+}
+
+_data_fail=0
+_roots=$(_fleet_bot_roots)
+if [ -z "$_roots" ]; then
+  echo "  ok: no bot data mounts found (nothing to assert)"
+else
+  while read -r root; do
+    [ -n "$root" ] || continue
+    for mount in data backups; do
+      dir="$root/$mount"
+      [ -d "$dir" ] || continue
+      duid=$(stat -c %u "$dir" 2>/dev/null || echo "?")
+      if [ "$duid" != "1001" ]; then
+        echo "FATAL: $dir is owned by uid=$duid, expected 1001 (compose user 1001:1001)." >&2
+        echo "       Bots cannot open their database while /health answers 200." >&2
+        echo "       Fix: chown -R 1001:1001 $dir" >&2
+        _data_fail=1
+      fi
+    done
+  done <<<"$_roots"
+  [ "$_data_fail" -eq 0 ] && echo "  ok: every bot data/ and backups/ mount is uid 1001"
+fi
+[ "$_data_fail" -eq 0 ] || exit 1
+
 echo "SYNC OK $head_sha"
