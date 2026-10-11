@@ -1,4 +1,4 @@
-# SECURITY-BASELINE prod 2.27.204.95 (bump 2026-10-11; периметр сверен по живому состоянию)
+# SECURITY-BASELINE prod 2.27.204.95 (bump 2026-09-11)
 
 ## Аудит 11.09 — статусы
 | Контроль | Статус |
@@ -6,7 +6,7 @@
 | SSH: PasswordAuthentication no + PermitRootLogin prohibit-password | ✅ |
 | UFW: только 22/tcp 80 443 37426/udp | ✅ |
 | fail2ban sshd+recidive (maxretry 3, bantime 1h→7d recidive) | ✅ |
-| fail2ban ignoreip: 31.76.11.198 5.144.123.123 5.144.122.222 (снимок 11.09) | ✅ ДОБАВЛЕН (корень блокировки predator); 5.144.* удалены из периметра 10.10 |
+| fail2ban ignoreip: 31.76.11.198 (5.144.* убраны 10.10) | ✅ прод: 127.0.0.1/8 ::1 31.76.11.198; монитор: + predator/prod |
 | Docker: user 1001:1001, cap_drop ALL, no-new-privileges, tmpfs /tmp | ✅ 9/9 ботов (compose.yml) |
 | Боты bind 127.0.0.1 (не экспонированы) | ✅ ss -tlnp |
 | nginx TLS 1.2/1.3, fullchain certs | ✅ |
@@ -52,9 +52,9 @@ ip saddr { 172.30.0.0/16, 172.31.0.0/16, 192.168.*.0/20 } tcp dport { 4317, 4318
 ```
 
 Источники 22: `10.8.1.0/24` (VPN awg0), `31.76.11.198` (монитор), `109.236.105.237` (predator),
-`81.201.16.75` + `109.236.105.106` (прежние/резервные входы). Список nftables и UFW совпадают
-(сверено по живому периметру 11.10). Мёртвые `5.144.123.123`/`5.144.122.222` (мобильная сеть
-ASUS-1, 0 пакетов за всю историю) удалены из обоих списков 10.10 — путь владельца = VPN или монитор.
+`81.201.16.75` + `109.236.105.106` (резервные/прежние входы; `.106` = старый динамический адрес
+predator, подтверждено remediation-plan). Мёртвые `5.144.123.123`/`5.144.122.222` (остатки мобильной
+сети ASUS-1, август) УДАЛЕНЫ 10.10 из UFW и ignoreip монитора. Для владельца путь = VPN или монитор.
 
 - **Урок 10.10:** `tcp dport 22 drop` в nftables (без нового источника) даёт `connect timeout`,
   НЕ отказ — из-за него e2e-smoke (GH Actions) и `predator→prod:22` выглядели как «провайдер
@@ -121,3 +121,21 @@ ClientAlive 300/3, LogLevel VERBOSE); `51-jumphost.conf` — `Match User deploy`
   workflow экспортирует `BOTKIT_SMOKE_LOG`/`BOTKIT_SMOKE_ALERTED_DIR` в `/home/deploy/botkit-smoke/`.
 - **Итог:** `gh workflow run e2e-smoke` → `SMOKE_ALL: PASS` (9/9 ботов, 10.10 02:41).
   Локальный `botkit-smoke.timer` (root, /var/log) работает независимо, каждый 30 мин.
+
+### 7. Drill 10.10–11.10: временные ключи на мониторе (отзыв после drill)
+
+Временный доступ для restore-drill с чистой машины **asus-1** (решение владельца
+10.10; jump добавлен 11.10 по команде «делай»). **Отзывается сразу после drill.**
+
+| Ключ | Где в `authorized_keys` | Ограничения | Статус |
+|---|---|---|---|
+| `id_ed25519_drill` (`drill-backup@asus-1`) | `/srv/botkit-backup/.ssh/authorized_keys` (sftp-репозитории) | `restrict`; только sftp `internal-sftp -d /` | 10.10 → отзыв после drill |
+| `id_ed25519_drill` (тот же) | `/home/deploy/.ssh/authorized_keys` (jump на прод) | `permitopen="2.27.204.95:22",command="/bin/false",no-agent-forwarding,no-X11-forwarding,no-pty,no-user-rc` — форвард только на прод:22, шелл запрещён | добавлено 11.10 (бэкап `authorized_keys.bak-drill-20261110`) → отзыв после drill |
+
+- На asus-1 цепочка: `bk-mon` (sftp-репо), `bk-mon-jump` (deploy@монитор, drill-ключ),
+  `bk-prod` (root@прод через `prod_key`; pin host-ключей `~/.ssh/known_hosts_prod`).
+  Проверено 11.10: `whoami` → `root`.
+- Резерв чтения прода (когда jump отозван): через predator (канон доступа — RESUME).
+- **Отзыв (steps):** удалить обе строки `drill-backup@asus-1` из `authorized_keys`
+  монитора (sftp + deploy); на asus-1 убрать алиасы `bk-mon-jump`/`bk-prod` из
+  `~/.ssh/config`; проверка: `ssh -o BatchMode=yes bk-prod "whoami"` → отказ.

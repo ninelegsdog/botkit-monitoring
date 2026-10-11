@@ -14,6 +14,7 @@ PORTS=(8081 8082 8083 8084 8085 8086 8087 8088 8089)
 LOG="${BOTKIT_HEALTH_LOG:-/var/log/botkit-health.log}"
 TIMEOUT=5
 SELF_UNIT="botkit-healthcheck.service"
+DRIFT_UNIT="botkit-drift.service"
 # Backup cadence is 6h; 7h leaves one missed run before the check goes red.
 MAX_BACKUP_AGE="${MAX_BACKUP_AGE:-25200}"
 MAX_EXPORT_AGE="${MAX_EXPORT_AGE:-25200}"
@@ -81,11 +82,40 @@ fi
 # --- 5. failed systemd units ------------------------------------------------
 # The unit itself is excluded: when this script exits 1 systemd marks it failed
 # and the next run would otherwise report its own expected failure forever.
-units=$(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | grep -E '[.]service$' | grep -v "^${SELF_UNIT}$" || true)
+#
+# botkit-drift.service is excluded too, deliberately. It runs on a 15-minute timer
+# while this check runs every 5 minutes, so `systemctl --failed` only shows it
+# during the two 5-minute windows after a drift run and not during the third: the
+# verdict flapped OK/FAIL/FAIL every 15 minutes, which is a false alarm generator
+# that also hid the real problem. Drift is judged on its published metric instead,
+# in section 5b, which is a fact about the check rather than about systemd's
+# reset-on-restart bookkeeping.
+units=$(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | grep -E '[.]service$' | grep -v -e "^${SELF_UNIT}$" -e "^${DRIFT_UNIT}$" || true)
 if [ -n "$units" ]; then
   while IFS= read -r unit; do
     note_fail "unit=$unit"
   done <<<"$units"
+fi
+
+# --- 5b. drift check is actually running ------------------------------------
+# A failed drift unit is noisy; a drift check that silently stopped publishing is
+# the dangerous one, because botkit_drift_ok would keep reading its last value and
+# every dashboard would stay green. So the staleness of the metric the check
+# publishes is checked directly. The threshold is three drift cycles.
+DRIFT_METRIC="${DRIFT_METRIC:-/var/lib/node-exporter-textfile/botkit_drift.prom}"
+MAX_DRIFT_AGE="${MAX_DRIFT_AGE:-5400}"
+if [ ! -f "$DRIFT_METRIC" ]; then
+  note_fail "drift=missing (нет ${DRIFT_METRIC})"
+else
+  drift_mtime=$(stat -c %Y "$DRIFT_METRIC" 2>/dev/null || echo 0)
+  if [ "$drift_mtime" -eq 0 ]; then
+    note_fail "drift=unreadable (не читается mtime ${DRIFT_METRIC})"
+  else
+    age=$((now - drift_mtime))
+    if [ "$age" -gt "$MAX_DRIFT_AGE" ]; then
+      note_fail "drift=stale age=${age}s limit=${MAX_DRIFT_AGE}s"
+    fi
+  fi
 fi
 
 # --- 6. backup freshness ----------------------------------------------------
