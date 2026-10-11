@@ -164,6 +164,36 @@ groups:
         annotations:
           summary: "Проверка доставки webhook не обновляет метрики"
           description: "botkit_webhook_check_timestamp не меняется больше 30 минут или отсутствует совсем. Пока метрики заморожены, их прежние значения читаются как «доставка работает» — тот же класс отказа, что был 26.09.2026. Проверить: systemctl status botkit-webhook-check.timer; journalctl -u botkit-webhook-check; строки 'ERROR metrics not published' в /var/log/botkit-webhook-check.log; ls -l /var/lib/node-exporter-textfile"
+
+      # Тот же класс отказа, что и выше, но для дрейфа: с 06.10.2026 check_drift.sh
+      # падал с "mktemp: Read-only file system" при записи botkit_drift.prom, потому
+      # что каталог node-exporter-textfile не был в ReadWritePaths юнита. Юнит висел
+      # в failed ~96 раз в сутки, но метрика botkit_drift_ok оставалась заморожена на
+      # 1, и панели читали «всё зелёное» 35 часов. absent() здесь обязателен: одно
+      # только выражение протухания не сматчится, пока серии нет, — то есть проверка,
+      # которая никогда не запускалась, оставила бы флот зелёным навсегда.
+      - alert: BotkitDriftStale
+        expr: |
+          absent(botkit_drift_last_check_timestamp_seconds)
+          or (time() - botkit_drift_last_check_timestamp_seconds > 2700)
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Проверка дрейфа не обновляет метрики"
+          description: "botkit_drift_last_check_timestamp_seconds не меняется больше 45 минут (3 цикла по 15) или отсутствует совсем. Пока метрики заморожены, botkit_drift_ok читается по последнему записанному значению — дрейф не виден. Проверить: systemctl status botkit-drift.timer; journalctl -u botkit-drift (искать 'Read-only file system'); ls -l /var/lib/node-exporter-textfile/botkit_drift.prom; systemctl show botkit-drift -p ReadWritePaths"
+
+      # Дрейф есть, но он вне грейса. Дублирует out-of-band алерты самого check_drift.sh
+      # (он шлёт BotkitDrift напрямую в Alertmanager с троттлингом 6ч), но появляется
+      # в Prometheus и в Grafana, где его видно без чтения лога.
+      - alert: BotkitDriftDetected
+        expr: min(botkit_drift_ok) < 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Дрейф конфигурации на проде: {{ $value }}"
+          description: "Клон бота на проде расходится с origin/main сверх грейса (HEAD != origin/main). Образ может быть актуален, а дерево чекаута — нет. Проверить: /var/log/botkit-drift.log, строки DRIFT."
   - name: node
     rules:
       - alert: HostDiskSpaceHigh
