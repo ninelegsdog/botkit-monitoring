@@ -39,11 +39,7 @@
         "scripts/check-repo-contract.py",
         "scripts/repo-contract.json"
       ],
-      "optional": [
-        "uv.lock",
-        "README-testing.md",
-        "docs/testing.md"
-      ],
+      "optional": ["uv.lock", "README-testing.md", "docs/testing.md"],
       "exemptions": {}
     },
     "library": {
@@ -130,9 +126,7 @@
         ".github/dependabot.yml": "Absent today. Recorded as a known gap in the README Status block rather than papered over.",
         ".env.example": "The harness reads no environment variables: Redis is addressed by port on the command line, and there is no secret to template. An .env.example with nothing in it would be a file that teaches the wrong thing."
       },
-      "optional": [
-        ".env.example"
-      ]
+      "optional": [".env.example"]
     },
     "template": {
       "description": "A project template. The README documents the project it generates, and CI must validate the generated output.",
@@ -159,9 +153,7 @@
         "docker-compose.yml": "Lives in the template body.",
         "pyproject.toml": "Lives in the template body."
       },
-      "optional": [
-        "package.json"
-      ]
+      "optional": ["package.json"]
     },
     "library-published": {
       "description": "The format reference. Audited against the contract, not rewritten to it.",
@@ -211,8 +203,7 @@
       ],
       "exemptions": {
         "Dockerfile": "No runtime.",
-        "docker-compose.yml": "No service.",
-        ".github/workflows": "A documentation repository has nothing to test. Its correctness is editorial, and CI cannot judge editorial quality - a badge claiming otherwise would be a lie."
+        "docker-compose.yml": "No service."
       }
     }
   },
