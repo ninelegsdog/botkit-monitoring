@@ -1,0 +1,13 @@
+# Normalise line endings in the repository, and check them on the way in.
+# Without this, a Windows contributor's CRLF turns every touched line into a
+# diff. This was a real defect in this family, recorded in qualityforge's
+# CHANGELOG under PR #37.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webm binary
+*.zip binary
+*.gz binary
+*.pdf binary
+*.session binary
