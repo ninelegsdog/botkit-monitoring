@@ -1,0 +1,260 @@
+{
+  "$comment": [
+    "The repository contract. One entry per repository type; a repository is",
+    "assigned exactly one type and inherits its required-artifact list plus its",
+    "exemptions. Every exemption carries a reason, because an exemption without a",
+    "reason is indistinguishable from an oversight, and a contract that cannot say",
+    "'why is this allowed here' stops being enforced and starts being negotiable."
+  ],
+  "version": "1.0.0",
+  "reference_repo": "ninelegsdog/qualityforge",
+  "language_policy": {
+    "README.md": "en",
+    "docs/": "ru",
+    "note": "README is the public front page on github.com and the reference repo's is English. Long-form docs/ stay in Russian. No placeholder text may reach a rendered document: every value is read from the repository."
+  },
+  "types": {
+    "telegram-bot": {
+      "description": "A deployable Telegram bot: Dockerfile, compose, deploy/ and a CI that ships it.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        ".gitignore",
+        ".editorconfig",
+        ".gitattributes",
+        ".env.example",
+        "Dockerfile",
+        "docker-compose.yml",
+        "pyproject.toml",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json"
+      ],
+      "optional": [
+        "uv.lock",
+        "README-testing.md",
+        "docs/testing.md"
+      ],
+      "exemptions": {}
+    },
+    "library": {
+      "description": "An importable Python library. It is not a service, so a container image would be a fake artifact.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        ".gitignore",
+        ".editorconfig",
+        ".gitattributes",
+        ".env.example",
+        "pyproject.toml",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json"
+      ],
+      "exemptions": {
+        "Dockerfile": "A library is installed with `pip`/`uv`, not run. An image with no entrypoint would be decorative.",
+        "docker-compose.yml": "No service to compose."
+      }
+    },
+    "observability-stack": {
+      "description": "A compose-only observability stack. There is no application image; the stack is composed of vendor images.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        ".gitignore",
+        ".editorconfig",
+        ".gitattributes",
+        ".env.example",
+        "docker-compose.yml",
+        "pyproject.toml",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json"
+      ],
+      "exemptions": {
+        "Dockerfile": "Every component is a vendor image (Prometheus, Grafana, Loki, Tempo, Alertmanager, OTel Collector). Nothing in this repository is built."
+      },
+      "notes": "SECURITY.md is grown from the existing SECURITY-BASELINE.md rather than written from scratch - that file already holds the hardening inventory and must not be lost."
+    },
+    "test-tooling": {
+      "description": "A QA harness that runs other projects' bots. It is a library plus a runner, not a service.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        ".gitignore",
+        ".editorconfig",
+        ".gitattributes",
+        "pyproject.toml",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/CODEOWNERS",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json"
+      ],
+      "exemptions": {
+        "Dockerfile": "The harness imports the bot under test in-process.",
+        "docker-compose.yml": "No service.",
+        ".github/dependabot.yml": "Absent today. Recorded as a known gap in the README Status block rather than papered over.",
+        ".env.example": "The harness reads no environment variables: Redis is addressed by port on the command line, and there is no secret to template. An .env.example with nothing in it would be a file that teaches the wrong thing."
+      },
+      "optional": [
+        ".env.example"
+      ]
+    },
+    "template": {
+      "description": "A project template. The README documents the project it generates, and CI must validate the generated output.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "AGENTS.md",
+        ".editorconfig",
+        ".gitattributes",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/CODEOWNERS",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json",
+        "CHANGELOG.md",
+        ".github/dependabot.yml"
+      ],
+      "exemptions": {
+        "Dockerfile": "Lives in the template body, not at the template root.",
+        "docker-compose.yml": "Lives in the template body.",
+        "pyproject.toml": "Lives in the template body."
+      },
+      "optional": [
+        "package.json"
+      ]
+    },
+    "library-published": {
+      "description": "The format reference. Audited against the contract, not rewritten to it.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        ".gitignore",
+        ".gitattributes",
+        "package.json",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/dependabot.yml",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json"
+      ],
+      "exemptions": {
+        "Dockerfile": "An npm library is not containerised.",
+        "docker-compose.yml": "No service.",
+        ".github/CODEOWNERS": "Meaningless while there is one owner. Revisit when a second appears."
+      }
+    },
+    "docs": {
+      "description": "A documentation-only repository. No build, no runtime, therefore no CI.",
+      "required": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "AGENTS.md",
+        ".editorconfig",
+        ".gitattributes",
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/CODEOWNERS",
+        "scripts/check-repo-contract.py",
+        "scripts/repo-contract.json",
+        "CHANGELOG.md",
+        ".gitignore"
+      ],
+      "exemptions": {
+        "Dockerfile": "No runtime.",
+        "docker-compose.yml": "No service.",
+        ".github/workflows": "A documentation repository has nothing to test. Its correctness is editorial, and CI cannot judge editorial quality - a badge claiming otherwise would be a lie."
+      }
+    }
+  },
+  "repos": {
+    "botkit-delivery": "telegram-bot",
+    "botkit-store": "telegram-bot",
+    "botkit-support": "telegram-bot",
+    "botkit-membership": "telegram-bot",
+    "botkit-bookingbot": "telegram-bot",
+    "botkit-docuflow": "telegram-bot",
+    "botkit-leadgen": "telegram-bot",
+    "botkit-pricesentry": "telegram-bot",
+    "botkit-reminder": "telegram-bot",
+    "botkit-core": "library",
+    "botkit-monitoring": "observability-stack",
+    "botkit-farm": "test-tooling",
+    "cookiecutter-botkit-bot": "template",
+    "qualityforge-template": "template",
+    "agentic-development-playbook": "docs",
+    "qualityforge": "library-published"
+  },
+  "policy_overrides": {
+    "$comment": [
+      "Per-repository exceptions to the global policy. Each one records what is",
+      "waived and why. An override with no reason is a contract that has stopped",
+      "being a contract."
+    ],
+    "agentic-development-playbook": {
+      "language_policy": {
+        "waived": "README.md may remain predominantly Russian.",
+        "reason": [
+          "This repository is a methodology document written in Russian by its author,",
+          "and the body is 400 lines of substantive prose, not boilerplate. An English",
+          "front page here would mean either a full translation -- a large, unreviewed",
+          "rewrite of the owner's own writing -- or a thin English shell around a",
+          "Russian document that misrepresents itself as the real thing.",
+          "The chosen answer: the Russian body is kept intact and an English summary",
+          "block is added at the top so the GitHub front page is legible to an English",
+          "reader, with a line stating plainly which language the rest is in.",
+          "Revisit when the document is next substantively revised by its author."
+        ]
+      }
+    }
+  }
+}
