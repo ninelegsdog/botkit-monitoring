@@ -23,11 +23,16 @@ Type=simple
 # verified the hard way before the forced command was added.
 User=botkit-e2e-tunnel
 Group=botkit-e2e-tunnel
-ExecStart=/usr/bin/ssh -F /var/lib/botkit-e2e-tunnel/ssh_config -N -D 127.0.0.1:11080 tunnel-monitor
+# Keepalive so a half-dead link (peer gone, TCP not yet timed out) makes ssh
+# exit on its own instead of leaving an active unit with a dead forward.
+ExecStart=/usr/bin/ssh -F /var/lib/botkit-e2e-tunnel/ssh_config -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -N -D 127.0.0.1:11080 tunnel-monitor
 Restart=always
 RestartSec=10
 # A dead tunnel means the E2E run cannot reach Telegram, so the limit is what
-# turns "quietly broken forever" into a failed unit.
+# turns "quietly broken forever" into a failed unit. `Restart=always` alone does
+# NOT survive it: once StartLimitBurst is hit only an external reset-failed can
+# clear the failed state, which is why botkit-e2e-tunnel-watchdog.service exists
+# (14.10.2026: the unit stayed dead ~4h after a LAN blip).
 
 NoNewPrivileges=true
 PrivateTmp=true

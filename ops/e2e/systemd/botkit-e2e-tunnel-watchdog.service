@@ -1,0 +1,33 @@
+[Unit]
+Description=Revive an E2E tunnel that is failed or whose forward port is gone
+# `Restart=always` on the tunnel units stops working once systemd hits
+# StartLimitBurst: a burst of ssh exits (a LAN blip) marks the unit failed and
+# nothing but an external actor can clear it. This is that actor. See
+# scripts/tunnel-watchdog.sh for the 14.10.2026 incident it closes.
+Documentation=file:///opt/botkit-e2e/ops/e2e/scripts/tunnel-watchdog.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Root only because reset-failed/start/restart of another unit requires it. The
+# script touches no secret and writes nothing to disk; output goes to the journal.
+ExecStart=/opt/botkit-e2e/ops/e2e/scripts/tunnel-watchdog.sh
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+# systemctl talks to PID 1 over an AF_UNIX socket; the port probe uses the inet
+# socket. Both families are required, so neither is restricted away.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

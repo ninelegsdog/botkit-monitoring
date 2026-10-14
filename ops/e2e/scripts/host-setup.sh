@@ -110,9 +110,17 @@ echo
 echo "== 6. units: installed but not armed =="
 run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e.service" /etc/systemd/system/botkit-e2e.service
 run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e.timer" /etc/systemd/system/botkit-e2e.timer
+# The tunnel watchdog is independent of the runner and safe to arm now: with no
+# tunnel unit present it finds nothing to revive and exits clean (see
+# scripts/tunnel-watchdog.sh). It exists because Restart=always cannot clear a
+# start-limited unit - only an external reset-failed + start can (14.10.2026).
+run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e-tunnel-watchdog.service" /etc/systemd/system/botkit-e2e-tunnel-watchdog.service
+run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e-tunnel-watchdog.timer" /etc/systemd/system/botkit-e2e-tunnel-watchdog.timer
 run systemctl daemon-reload
 # The timer stays disabled until W20, after the live run and the negative check.
 echo "  botkit-e2e.timer: $(systemctl is-enabled botkit-e2e.timer 2>/dev/null || echo disabled) (arming it is W20)"
+run systemctl enable --now botkit-e2e-tunnel-watchdog.timer
+echo "  botkit-e2e-tunnel-watchdog.timer: $(systemctl is-enabled botkit-e2e-tunnel-watchdog.timer 2>/dev/null || echo disabled)"
 run systemctl show botkit-e2e.service -p ExecStart --value
 
 echo
