@@ -81,6 +81,36 @@ def test_load_scenarios(tmp_path):
     assert sc["bookingbot"].steps[0].expect == "Привет"
 
 
+def test_load_scenarios_press_step(tmp_path):
+    p = tmp_path / "sc.yaml"
+    p.write_text("bookingbot:\n  steps:\n    - press: book:my\n      expect: Нет активных записей\n")
+    st = load_scenarios(p)["bookingbot"].steps[0]
+    assert st.press == "book:my"
+    assert st.send == ""
+    assert st.expect == "Нет активных записей"
+
+
+def test_load_scenarios_rejects_send_and_press_together(tmp_path):
+    p = tmp_path / "sc.yaml"
+    p.write_text("b:\n  steps:\n    - send: /start\n      press: book:my\n      expect: x\n")
+    with pytest.raises(ValueError, match="exactly one"):
+        load_scenarios(p)
+
+
+def test_load_scenarios_rejects_neither_send_nor_press(tmp_path):
+    p = tmp_path / "sc.yaml"
+    p.write_text("b:\n  steps:\n    - expect: x\n")
+    with pytest.raises(ValueError, match="exactly one"):
+        load_scenarios(p)
+
+
+def test_load_scenarios_rejects_missing_expect(tmp_path):
+    p = tmp_path / "sc.yaml"
+    p.write_text("b:\n  steps:\n    - send: /start\n")
+    with pytest.raises(ValueError, match="expect"):
+        load_scenarios(p)
+
+
 def test_load_bots_strips_at_sign(tmp_path):
     # Quoted: a bare @ is a YAML reserved indicator, so the unquoted form is a
     # parse error rather than a string. Resolved output is written quoted too.
