@@ -7,9 +7,27 @@ from typing import TYPE_CHECKING, Any
 
 from telethon import TelegramClient
 from telethon.errors import PasswordHashInvalidError, SessionPasswordNeededError
+from telethon.tl.functions.messages import GetBotCallbackAnswerRequest
 
 if TYPE_CHECKING:
     from e2e.config import Settings
+
+
+
+def _button_callback_data(btn: Any) -> str | None:
+    """Callback payload of an inline button, across telethon button shapes.
+
+    Standard `KeyboardButtonCallback` carries it on `btn.callback_data`. The
+    unified `KeyboardInlineButton` instead nests it: `btn.type` is an
+    `InlineButtonTypeCallback` with `.data` (bytes). `btn.callback_data` is
+    None there, so a flat getattr silently matches nothing.
+    """
+    data = getattr(btn, "callback_data", None)
+    if data is None:
+        data = getattr(getattr(btn, "type", None), "data", None)
+    if isinstance(data, bytes):
+        return data.decode("utf-8", "replace")
+    return str(data) if data is not None else None
 
 # Telethon prefers python-socks and falls back to PySocks, and warns about an
 # "ignored" proxy whenever python-socks is missing even though the fallback then
@@ -221,14 +239,66 @@ class TelegramTester:
     async def run_scenario(self, username: str, steps: list[Any], timeout: int) -> list[str]:
         out: list[str] = []
         for i, st in enumerate(steps):
-            top = await self.client.get_messages(username, limit=1)
-            seen = top[0].id if top else 0
-            await self.client.send_message(username, st.send)
-            reply, seen = await self._wait_reply(username, timeout, seen)
-            out.append(reply)
+            if getattr(st, "press", ""):
+                # A press step does not send anything, so it does not consume a
+                # fresh-message id: it taps a button that is already on screen.
+                out.append(await self._press_and_wait(username, st, timeout))
+            else:
+                top = await self.client.get_messages(username, limit=1)
+                seen = top[0].id if top else 0
+                await self.client.send_message(username, st.send)
+                reply, _ = await self._wait_reply(username, timeout, seen)
+                out.append(reply)
             if i < len(steps) - 1:
                 await asyncio.sleep(SETTLE_S)
         return out
+
+    async def _press_and_wait(self, username: str, step: Any, timeout: int) -> str:
+        """Press an inline button by callback_data and wait for the edited reply.
+
+        The allowlisted handlers answer with `callback.message.edit_text(...)`,
+        which rewrites the SAME message id. `_wait_reply` only looks for ids
+        newer than the last one it saw, so it would time out on an edit. This
+        waits for the target message's `edit_date` to move instead.
+        """
+        msg = await self._find_button_message(username, step.press)
+        if msg is None:
+            raise RuntimeError(
+                f"no visible inline button with callback_data={step.press!r} in recent {username} messages"
+            )
+        peer = await self.client.get_input_entity(username)
+        before = msg.edit_date
+        await self.client(
+            GetBotCallbackAnswerRequest(peer=peer, msg_id=msg.id, data=step.press.encode())
+        )
+        return await self._wait_edit(username, msg.id, before, timeout, step.expect)
+
+    async def _find_button_message(self, username: str, callback_data: str) -> Any:
+        for m in await self.client.get_messages(username, limit=5):
+            markup = getattr(m, "reply_markup", None)
+            if not markup:
+                continue
+            for row in getattr(markup, "rows", []) or []:
+                for btn in getattr(row, "buttons", []) or []:
+                    if _button_callback_data(btn) == callback_data:
+                        return m
+        return None
+
+    async def _wait_edit(
+        self, username: str, message_id: int, before: Any, timeout: int, expect: str
+    ) -> str:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            m = await self.client.get_messages(username, ids=message_id)
+            if m and m.edit_date and m.edit_date != before and m.text and expect in m.text:
+                return m.text
+            await asyncio.sleep(POLL_S)
+        msg = (
+            f"no edited reply matching {expect!r} from {username} after pressing the button "
+            "(the handler may have answered with only a toast, or the button was not tapped)"
+        )
+        raise TimeoutError(msg)
 
     async def _wait_reply(self, username: str, timeout: int, after_id: int) -> tuple[str, int]:
         loop = asyncio.get_running_loop()

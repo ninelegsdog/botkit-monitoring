@@ -61,16 +61,22 @@ def test_no_scenario_expects_a_payment_prompt(scenarios):
     assert not offenders, "payment prompts must not be expected in E2E scenarios:\n" + "\n".join(offenders)
 
 
-def test_every_step_has_send_and_expect(scenarios):
-    """A step missing expect would compare against nothing and pass."""
+def test_every_step_has_send_or_press_and_expect(scenarios):
+    """A step missing expect would compare against nothing and pass.
+
+    A step must also do exactly one action: `send` a message or `press` an inline
+    button. Both or neither is a config error the runner would trip on at runtime.
+    """
     bad = []
     for bot, cfg in scenarios.items():
         for i, step in enumerate(cfg.get("steps", []), start=1):
-            if not str(step.get("send", "")).strip():
-                bad.append(f"{bot} step {i}: empty send")
+            has_send = bool(str(step.get("send", "")).strip())
+            has_press = bool(str(step.get("press", "")).strip())
+            if has_send == has_press:
+                bad.append(f"{bot} step {i}: needs exactly one of send/press, got {step!r}")
             if not str(step.get("expect", "")).strip():
                 bad.append(f"{bot} step {i}: empty expect")
-    assert not bad, "steps need both send and expect:\n" + "\n".join(bad)
+    assert not bad, "steps need exactly one of send/press and an expect:\n" + "\n".join(bad)
 
 
 def test_the_gate_actually_catches_a_payment_step(scenarios):

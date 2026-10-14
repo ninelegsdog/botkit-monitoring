@@ -3,9 +3,9 @@ Description=Botkit E2E every 6 hours
 
 [Timer]
 # Strategy B: few messages per run, so the account volume stays low. Counted
-  # from the scenarios rather than estimated: 9 bots x 1 scenario x 2 steps = 18
-  # outgoing /start per run, 4 runs a day = 72 to the bots, plus 1 heartbeat per
-  # run = 4 more to Saved Messages. Total 76 outgoing messages a day.
+  # from the scenarios rather than estimated: 23 steps across the 9 bots = 23
+  # outgoing messages per run (read-only dialogs beyond /start), 4 runs a day = 92
+  # to the bots, plus 1 heartbeat per run = 4 more to Saved Messages. Total 96/day.
 # RandomizedDelaySec keeps nine runs from looking like a machine, and its 30m
   # jitter is why the external watchdog allows 8h of silence (E2E_WATCHDOG_MAX_GAP_MIN)
   # against a 6h interval: the widest real gap is ~6.5h.
