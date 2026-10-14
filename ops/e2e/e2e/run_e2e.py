@@ -87,7 +87,18 @@ def _alert_throttled(settings: Settings, bot: str, channel: str) -> bool:
 
 
 def _mark_alerted(settings: Settings, bot: str, channel: str) -> None:
-    _alert_marker(settings, bot, channel).write_text(str(time.time()))
+    """Record the throttle marker; a failed write must not mask the verdict.
+
+    The marker lives in the service's own state dir, but a stale file left by a
+    manual run under another user once turned this write into a PermissionError
+    that propagated out of the alert path, replacing the real failure with a
+    traceback (#457). A missed marker only costs one extra page, so the write is
+    best-effort: reported loudly, then swallowed.
+    """
+    try:
+        _alert_marker(settings, bot, channel).write_text(str(time.time()))
+    except OSError as exc:
+        print(f"WARN could not write alert marker for {bot}/{channel}: {exc}")
 
 
 def send_alert(
