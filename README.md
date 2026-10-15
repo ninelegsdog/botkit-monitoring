@@ -118,6 +118,9 @@ promtool check rules prometheus/alerts.yml
 docker compose config -q   # requires MINIO_* from .env
 ```
 
+The layers of automated checks — offline farm, live infra smokes, live Telegram
+conversion — and where each lives: **[README-testing.md](README-testing.md)** (Russian).
+
 ## Architecture decisions
 
 - **[docs/adr/0001-offsite-backup-restic-over-git.md](docs/adr/0001-offsite-backup-restic-over-git.md)** — 0001 offsite backup restic over git.
