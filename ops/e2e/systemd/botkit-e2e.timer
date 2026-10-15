@@ -2,15 +2,22 @@
 Description=Botkit E2E every 6 hours
 
 [Timer]
-# Strategy B: few messages per run, so the account volume stays low. Counted
-  # from the scenarios rather than estimated: 23 steps across the 9 bots = 23
-  # outgoing messages per run (read-only dialogs beyond /start), 4 runs a day = 92
-  # to the bots, plus 1 heartbeat per run = 4 more to Saved Messages. Total 96/day.
+# Budget, counted from the scenarios and not estimated. tests/test_e2e_schedule.py
+# recomputes it from scenarios.yml and OnCalendar and goes red on any drift, so
+# this comment is checked rather than asserted:
+#   25 steps = 23 sends + 2 button presses = 25 outbound calls per run
+#   (a press is also an outbound call: it is a getBotCallbackAnswer, not a local tap).
+#   4 runs a day -> 100 outbound calls, plus 1 run summary per run = 104/day.
 # RandomizedDelaySec keeps nine runs from looking like a machine, and its 30m
-  # jitter is why the external watchdog allows 8h of silence (E2E_WATCHDOG_MAX_GAP_MIN)
-  # against a 6h interval: the widest real gap is ~6.5h.
+# jitter is why the external watchdog allows 8h of silence (E2E_WATCHDOG_MAX_GAP_MIN)
+# against a 6h interval: the widest real gap is ~6.5h.
+# Persistent=true is deliberate and does not create catch-up bursts. systemd keeps
+# one timestamp, not a queue, so after downtime it triggers at most one missed run,
+# never the four the old comment feared. That single run is what keeps the gap under
+# the watchdog's 8h after a reboot; with Persistent=false the first run would wait
+# for the next OnCalendar slot and the watchdog would page about a dead runner.
 # Strategy C (a disposable account) and D (alert proof without Telegram) are
-  # owner decisions and do not change this file.
+# owner decisions and do not change this file.
 OnCalendar=*-*-* 00/6:17
 RandomizedDelaySec=30m
 Persistent=true

@@ -15,6 +15,7 @@ import pathlib
 import re
 
 import pytest
+import yaml
 
 from e2e import run_e2e
 from e2e.config import Settings
@@ -22,6 +23,14 @@ from e2e.config import Settings
 E2E_DIR = pathlib.Path(__file__).resolve().parent.parent
 UNIT = (E2E_DIR / "systemd" / "botkit-e2e.service").read_text()
 TIMER = (E2E_DIR / "systemd" / "botkit-e2e.timer").read_text()
+SCENARIOS = E2E_DIR / "scenarios.yml"
+
+# Ceiling for the whole fleet, not a target. The account is a real user account
+# and the cost of being wrong is a ban, so the number is deliberately above the
+# current 104 a day - headroom for a scenario or two, not for doubling the fleet.
+# A test that only restates today's number would go red on every honest edit and
+# get relaxed; this one only fires when the growth is real.
+BUDGET_MAX_OUTBOUND_PER_DAY = 150
 
 
 def _directive(unit: str, key: str) -> list[str]:
@@ -85,8 +94,10 @@ def test_session_path_is_outside_home():
 
 
 def test_timer_runs_every_six_hours_with_jitter():
-    """Strategy B: 1 message per bot per run, 36 a day. A 15-minute cadence was
-    the old value and it multiplied that by 24."""
+    """Strategy B: one dialog per bot per run, not a message every quarter hour.
+
+    The 15-minute cadence was the old value and it multiplied the account volume
+    by 24; the exact count lives in the budget test below, derived and checked."""
     oncal = _directive(TIMER, "OnCalendar")
     assert oncal, "OnCalendar is required"
     assert "00/6" in oncal[0], f"expected a 6h cadence, got {oncal}"
@@ -94,6 +105,49 @@ def test_timer_runs_every_six_hours_with_jitter():
     jitter = _directive(TIMER, "RandomizedDelaySec")
     assert jitter, "RandomizedDelaySec is required so runs do not look mechanical"
     assert _directive(TIMER, "Persistent") == ["true"]
+
+
+def _outbound_budget() -> tuple[int, int, int, int]:
+    """Count what a run actually sends, from the scenarios, not from prose.
+
+    A press is an outbound call too: it reaches Telegram as getBotCallbackAnswer,
+    so a budget that counted only `send` would understate the traffic and let the
+    account drift into a ban while the number still looked safe.
+    """
+    scenarios = yaml.safe_load(SCENARIOS.read_text(encoding="utf-8"))
+    sends = sum(1 for sc in scenarios.values() for st in sc["steps"] if "send" in st)
+    presses = sum(1 for sc in scenarios.values() for st in sc["steps"] if "press" in st)
+    per_run = sends + presses
+    hours = int(re.search(r"00/(\d+)", _directive(TIMER, "OnCalendar")[0]).group(1))
+    runs_per_day = 24 // hours
+    # One summary per run keeps the absence of a message meaningful (watchdog half).
+    per_day = per_run * runs_per_day + runs_per_day
+    return sends, presses, per_run, per_day
+
+
+def test_message_budget_is_within_the_ceiling():
+    """The account is a user account; the cost of over-sending is a ban."""
+    *_, per_day = _outbound_budget()
+    assert per_day <= BUDGET_MAX_OUTBOUND_PER_DAY, (
+        f"{per_day} outbound calls a day exceeds the {BUDGET_MAX_OUTBOUND_PER_DAY} ceiling"
+    )
+
+
+def test_documented_budget_matches_the_scenarios():
+    """The same budget was three different numbers at once: 76/day in the installed
+    timer, 96/day in the repository copy and 36/day in a test docstring, none of
+    them counting button presses. Prose cannot be trusted to stay derived, so the
+    number in the timer comment is asserted against scenarios.yml here."""
+    sends, presses, per_run, per_day = _outbound_budget()
+    for expected in (
+        f"{sends} sends + {presses} button presses",
+        f"{per_run} outbound calls per run",
+        f"{per_day}/day",
+    ):
+        assert expected in TIMER, (
+            f"timer comment does not state the recomputed budget ({expected!r}); "
+            "update ops/e2e/systemd/botkit-e2e.timer"
+        )
 
 
 def test_alert_url_is_not_hardcoded_in_the_runner():

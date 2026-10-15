@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The E2E message budget was three different numbers at once — 76 a day in the
+  installed timer, 96 in the repository copy and 36 in a test docstring — and none
+  of them counted button presses, which reach Telegram as outbound calls too. The
+  number is now derived from `scenarios.yml` and `OnCalendar` (25 steps = 23 sends
+  + 2 presses, 4 runs, plus a run summary = 104 a day) and asserted against the
+  timer comment, so prose cannot drift from the scenarios again.
 - The E2E runner's Alertmanager alert now carries its own `endsAt`. Without it
   Alertmanager dropped the alert after its `resolve_timeout`, so "the bot is
   still broken" and "the runner stopped reaching Alertmanager" were the same
