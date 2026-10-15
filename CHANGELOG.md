@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The E2E runner's Alertmanager alert now carries its own `endsAt`. Without it
+  Alertmanager dropped the alert after its `resolve_timeout`, so "the bot is
+  still broken" and "the runner stopped reaching Alertmanager" were the same
+  event on the receiving side. The hold window now outlasts the gap to the next
+  run (6h timer plus jitter), and only the runner lets an alert close.
 - `README-testing.md` was unreachable from the README in every bot of the family
   except one. A document nobody can reach is a document nobody reads; it is linked
   from the front page now.
