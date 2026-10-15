@@ -1,6 +1,7 @@
 import asyncio
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import ClassVar
 
 import pytest
@@ -188,6 +189,25 @@ def test_alert_payload_carries_bot_and_reason():
     assert labels["severity"] == "warning"
     assert labels["bot"] == "botkit-x"
     assert payload[0]["annotations"]["description"] == "boom"
+
+
+def test_alert_carries_an_endsat_we_own():
+    """Срок гашения задаём мы, а не resolve_timeout Alertmanager.
+
+    Иначе одинаковый интервал «ещё сломано» и «давно не видели прогонов» — а
+    счёт автомату на конец именно этого срока.
+    """
+    payload = run_e2e.build_alert("botkit-x", "boom")[0]
+    now = datetime.now(timezone.utc)
+    starts_at = datetime.fromisoformat(payload["startsAt"])
+    ends_at = datetime.fromisoformat(payload["endsAt"])
+    assert ends_at > now
+    assert starts_at <= now + timedelta(seconds=5)
+    assert ends_at - starts_at == timedelta(hours=run_e2e.ALERT_HOLD_H)
+    # Окно обязано пережить до ближайшего прогона (6ч + jitter), иначе AM
+    # отчитается "resolved", пока бот так и не починился.
+    assert ends_at - now > timedelta(hours=6)
+
 
 def test_main_refuses_to_run_without_alert_transport(monkeypatch, tmp_path):
     """A pass nobody would be paged about must not be reportable as a pass."""

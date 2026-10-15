@@ -6,6 +6,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 from e2e.client import TelegramTester
 from e2e.config import Settings, load_bots, load_scenarios, load_settings
@@ -13,6 +14,10 @@ from e2e.heartbeat import mark_run_end
 
 ALERT_THROTTLE_S = 3600  # не чаще 1 алерта на бота за 1ч
 ALERT_DESCRIPTION_LIMIT = 200
+# Держим алерт открытым дольше до следующего прогона (6ч + 30м jitter): раннер
+# только пере-POST'ит его на прогоне, поэтому более короткое окно заставило бы
+# Alertmanager самому отчитаться "resolved", пока бот всё ещё сломан.
+ALERT_HOLD_H = 7
 HTTP_OK = 200
 HTTP_MULTI_STATUS = 300
 # Distinct codes on purpose: an operator reading the journal or `systemctl`
@@ -55,6 +60,7 @@ def build_alert(bot: str, reason: str, alertname: str = UNEXPECTED_REPLY) -> lis
     restart a bot or the test rig.
     """
     severity = "critical" if alertname in (RUNNER_ERROR, TEST_RUNNER_DEAD) else "warning"
+    now = datetime.now(timezone.utc)
     return [
         {
             "labels": {
@@ -67,6 +73,11 @@ def build_alert(bot: str, reason: str, alertname: str = UNEXPECTED_REPLY) -> lis
                 "summary": f"E2E {alertname} {bot}",
                 "description": reason[:ALERT_DESCRIPTION_LIMIT],
             },
+            # Без endsAt Alertmanager закрывает алерт через свой resolve_timeout,
+            # так что «ещё сломано» и «давно пропало» неразличимы. Гасить обязан
+            # наш срок — так же, как webhook_check.send_alert().
+            "startsAt": now.isoformat(),
+            "endsAt": (now + timedelta(hours=ALERT_HOLD_H)).isoformat(),
         }
     ]
 
