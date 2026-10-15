@@ -53,6 +53,20 @@ def test_environment_file_is_the_e2e_env():
     assert envs == ["/etc/botkit-e2e/e2e.env"], f"got {envs}"
 
 
+def test_unit_sets_a_private_umask_for_what_it_writes():
+    """The mode of the runner's output is a property of the unit, not of a run.
+
+    The session is an account credential and the status markers are the runner's
+    only other output; UMask=0077 is what keeps both private. Without the
+    directive they are created with the host umask (022 -> world-readable), and
+    a manual `runuser ... python -m e2e.run_e2e` - the very command an operator
+    reaches for when verifying - bypasses the unit entirely, so the difference
+    shows up as one 0644 marker among 0600 ones. Asserted here because a
+    silently-dropped UMask is invisible until someone reads the modes."""
+    umask = _directive(UNIT, "UMask")
+    assert umask == ["0077"], f"UMask must be 0077 to keep the session and markers private, got {umask}"
+
+
 def test_runs_as_the_dedicated_unprivileged_user():
     users = _directive(UNIT, "User")
     assert users == ["botkit-e2e"], f"got {users}"

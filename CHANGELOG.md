@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `test_unit_sets_a_private_umask_for_what_it_writes` pins `UMask=0077` in the E2E
+  unit. The session is an account credential and the status markers are the runner's
+  only other output; without the directive both are created with the host umask, and
+  a manual `runuser ... python -m e2e.run_e2e` — the command an operator reaches for
+  when verifying — bypasses the unit and leaves one world-readable `0644` marker
+  among the `0600` ones.
 - The repository presents itself as it is. The README became a front page — pitch,
   badges, a table of contents and user-facing sections — and issue forms plus a
   pull-request template now ask for the evidence this project acts on: what was
