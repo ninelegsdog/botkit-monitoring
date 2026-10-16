@@ -1,0 +1,13 @@
+[Unit]
+Description=Check the E2E tunnels for a dead unit or a missing forward every 2 minutes
+
+[Timer]
+# Revive fast, but do not hammer: a tunnel that is down because the monitor is
+# unreachable will come back on its own once the path is restored, and the
+# watchdog only needs to close the window where systemd has given up.
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

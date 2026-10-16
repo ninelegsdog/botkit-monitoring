@@ -1,66 +1,95 @@
-# E2E-сценарии (пересобраны 2026-09-25 из исходников, НЕ из фиктивных ожиданий).
-# Матчинг — substring: expect должен встречаться в reply.
-# Шаг 1: /start → приветствие (точный текст из кода).
-# Шаг 2: повторный /start → то же приветствие (идемпотентность /start).
-# Глубокие диалоги по кнопкам — когда появится Telegram-аккаунт (E1 финальный DoD).
+# E2E smoke scenarios for the 9-bot fleet (live runner: ops/e2e/run_e2e.py).
 #
-# ПРАВИЛО: никаких платёжных сценариев. Ожидаемая строка не может быть кнопкой
-# оплаты, и `send` не может быть командой платёжного провайдера. Причина
-# конкретная: tests/test_deposit_e2e.py в botkit-bookingbot — это контейнерный
-# тест БД, а не Telegram-сценарий, поэтому документ, называвший его источником
-# риска, указывал не туда. Реальный риск — будущие сценарии, и он закрыт
-# машинно в tests/test_no_payment_scenarios.py, а не «прочитайте diff».
-botkit-bookingbot:
+# Each step sends `send` and waits (no sleep) for the next bot message whose
+# text contains `expect`. Every `expect` below is a substring proven live.
+#
+# SAFETY RULES (enforced by tests/test_no_payment_scenarios.py):
+#   * READ-ONLY only: no step may create, pay for, subscribe to or delete
+#     anything. Empty-state replies are deterministic for the E2E test account,
+#     which has no orders/tickets/items/documents/reminders.
+#   * No payment markers in `send` or `expect` (оплат, pay, счёт, юkassa, ...).
+#   * No admin-only commands: the E2E account is an admin in every bot, so a
+#     stray admin command would mutate real production data.
+#
+# `press` taps an inline button already on screen (by callback_data) and waits for
+# the bot's EDITED reply. Only allowlisted read-only buttons may be pressed - see
+# tests/test_no_unapproved_actions.py. bookingbot and membership are inline-only,
+# so their read-only views (book:my / mem:my) are reached this way.
+
+"botkit-bookingbot":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Выберите действие:"
-    - send: /start
+    - send: "/start"
       expect: "Выберите действие:"
-botkit-delivery:
+    - press: "book:my"
+      expect: "Нет активных записей"
+
+"botkit-delivery":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Отслеживание заказов и доставок"
-    - send: /start
-      expect: "Отслеживание заказов и доставок"
-botkit-docuflow:
+    - send: "🔍 Проверить заказ"
+      expect: "Введите номер заказа"
+    # Unknown order number: the lookup fails read-only and says so.
+    - send: "E2E-НЕТ-ЗАКАЗА"
+      expect: "Заказ не найден"
+
+"botkit-docuflow":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Генерация документов в Telegram"
-    - send: /start
-      expect: "Генерация документов в Telegram"
-botkit-leadgen:
+    - send: "🗂 Мои документы"
+      expect: "Нет документов"
+
+"botkit-leadgen":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Здравствуйте! Оставьте заявку"
-    - send: /start
-      expect: "Здравствуйте! Оставьте заявку"
-botkit-membership:
+    - send: "📞 Контакты"
+      expect: "Телефон:"
+
+"botkit-membership":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Добро пожаловать! Выберите действие"
-    - send: /start
+    - send: "/start"
       expect: "Добро пожаловать! Выберите действие"
-botkit-pricesentry:
+    - press: "mem:my"
+      expect: "У вас нет активной подписки"
+
+"botkit-pricesentry":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Мониторинг цен на маркетплейсах"
-    - send: /start
-      expect: "Мониторинг цен на маркетплейсах"
-botkit-reminder:
+    - send: "📦 Мои товары"
+      expect: "Нет мониторинга"
+    - send: "🔔 Мои уведомления"
+      expect: "Нет уведомлений"
+    - send: "📊 Статистика"
+      expect: "Ваши товары: 0"
+
+"botkit-reminder":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Подпишитесь на напоминания и рассылки"
-    - send: /start
-      expect: "Подпишитесь на напоминания и рассылки"
-botkit-store:
+    - send: "⏰ Мои напоминания"
+      expect: "Нет напоминаний"
+
+"botkit-store":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Добро пожаловать в магазин"
-    - send: /start
-      expect: "Добро пожаловать в магазин"
-botkit-support:
+    - send: "🛒 Корзина"
+      expect: "Корзина пуста"
+    - send: "📦 Мои покупки"
+      expect: "Нет покупок"
+
+"botkit-support":
   steps:
-    - send: /start
+    - send: "/start"
       expect: "Здравствуйте! Чем можем помочь"
-    - send: /start
-      expect: "Здравствуйте! Чем можем помочь"
+    - send: "❓ Помощь"
+      expect: "Чтобы мы помогли"
+    - send: "📋 Мои тикеты"
+      expect: "нет тикетов"

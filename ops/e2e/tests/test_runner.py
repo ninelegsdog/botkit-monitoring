@@ -1,4 +1,7 @@
 import asyncio
+import os
+import time
+from datetime import datetime, timedelta, timezone
 from typing import ClassVar
 
 import pytest
@@ -187,6 +190,25 @@ def test_alert_payload_carries_bot_and_reason():
     assert labels["bot"] == "botkit-x"
     assert payload[0]["annotations"]["description"] == "boom"
 
+
+def test_alert_carries_an_endsat_we_own():
+    """Срок гашения задаём мы, а не resolve_timeout Alertmanager.
+
+    Иначе одинаковый интервал «ещё сломано» и «давно не видели прогонов» — а
+    счёт автомату на конец именно этого срока.
+    """
+    payload = run_e2e.build_alert("botkit-x", "boom")[0]
+    now = datetime.now(timezone.utc)
+    starts_at = datetime.fromisoformat(payload["startsAt"])
+    ends_at = datetime.fromisoformat(payload["endsAt"])
+    assert ends_at > now
+    assert starts_at <= now + timedelta(seconds=5)
+    assert ends_at - starts_at == timedelta(hours=run_e2e.ALERT_HOLD_H)
+    # Окно обязано пережить до ближайшего прогона (6ч + jitter), иначе AM
+    # отчитается "resolved", пока бот так и не починился.
+    assert ends_at - now > timedelta(hours=6)
+
+
 def test_main_refuses_to_run_without_alert_transport(monkeypatch, tmp_path):
     """A pass nobody would be paged about must not be reportable as a pass."""
     settings = _settings(tmp_path)
@@ -265,6 +287,34 @@ def test_notify_failure_is_reported_not_raised(tmp_path, capsys):
     settings.status_dir.mkdir(parents=True, exist_ok=True)
     ok = asyncio.run(run_e2e.notify_saved_messages(_FakeTester(fail=True), settings, "botkit-x", "boom"))
     assert ok is False
+    assert "WARN" in capsys.readouterr().out
+
+
+def test_mark_alerted_write_failure_is_reported_not_raised(tmp_path, capsys):
+    """A foreign marker must not turn an alert into a traceback that hides the verdict.
+
+    #457: a stale root-owned .alerted.* file made this write raise PermissionError,
+    which propagated out of the alert path and replaced the real test failure. Force
+    the write to fail and require a WARN with no exception.
+    """
+    settings = _settings(tmp_path)
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    run_e2e._alert_marker(settings, "botkit-x", "am").mkdir()  # a directory cannot be written as a file
+    run_e2e._mark_alerted(settings, "botkit-x", "am")  # must not raise
+    assert "WARN" in capsys.readouterr().out
+
+
+def test_send_alert_survives_marker_write_failure(tmp_path, monkeypatch, capsys):
+    """A delivered alert must count as delivered even if its throttle marker cannot
+    be written (#457): the run continues instead of dying on the marker."""
+    monkeypatch.setattr(run_e2e, "post_alert", lambda url, payload, timeout=5: True)
+    settings = _settings(tmp_path)
+    settings.status_dir.mkdir(parents=True, exist_ok=True)
+    marker = run_e2e._alert_marker(settings, "botkit-x", "am")
+    marker.mkdir()
+    old = time.time() - run_e2e.ALERT_THROTTLE_S - 10
+    os.utime(marker, (old, old))  # stale dir: not throttled, yet the write still fails
+    assert run_e2e.send_alert(settings, "botkit-x", "boom") is True
     assert "WARN" in capsys.readouterr().out
 
 

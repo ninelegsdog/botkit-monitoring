@@ -69,8 +69,18 @@ class Settings:
 
 @dataclass
 class Step:
-    send: str
-    expect: str
+    """One E2E step: send a text message OR press an inline button, then wait.
+
+    `send` and `press` are mutually exclusive - a step does exactly one of them
+    and then waits for `expect` in the reply. `press` names an inline button by
+    its callback_data; the allowlist of permitted callback_data values is
+    enforced by tests/test_no_unapproved_actions.py so a scenario can never tap
+    a write/payment button.
+    """
+
+    send: str = ""
+    expect: str = ""
+    press: str = ""
 
 
 @dataclass
@@ -117,10 +127,22 @@ def load_settings() -> Settings:
 
 def load_scenarios(path) -> dict[str, Scenario]:
     data = yaml.safe_load(Path(path).read_text()) or {}
-    return {
-        b: Scenario(steps=[Step(s["send"], s["expect"]) for s in c.get("steps", [])])
-        for b, c in data.items()
-    }
+    out: dict[str, Scenario] = {}
+    for bot, cfg in data.items():
+        steps: list[Step] = []
+        for raw in cfg.get("steps", []):
+            send = str(raw.get("send", "") or "")
+            press = str(raw.get("press", "") or "")
+            expect = str(raw.get("expect", "") or "")
+            if bool(send) == bool(press):
+                msg = f"{bot}: step must have exactly one of 'send' or 'press', got {raw!r}"
+                raise ValueError(msg)
+            if not expect:
+                msg = f"{bot}: step is missing 'expect', got {raw!r}"
+                raise ValueError(msg)
+            steps.append(Step(send=send, expect=expect, press=press))
+        out[bot] = Scenario(steps=steps)
+    return out
 
 
 def load_bots(path) -> dict[str, str]:

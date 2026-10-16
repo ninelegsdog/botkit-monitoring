@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `test_unit_sets_a_private_umask_for_what_it_writes` pins `UMask=0077` in the E2E
+  unit. The session is an account credential and the status markers are the runner's
+  only other output; without the directive both are created with the host umask, and
+  a manual `runuser ... python -m e2e.run_e2e` — the command an operator reaches for
+  when verifying — bypasses the unit and leaves one world-readable `0644` marker
+  among the `0600` ones.
 - The repository presents itself as it is. The README became a front page — pitch,
   badges, a table of contents and user-facing sections — and issue forms plus a
   pull-request template now ask for the evidence this project acts on: what was
@@ -21,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The E2E message budget was three different numbers at once — 76 a day in the
+  installed timer, 96 in the repository copy and 36 in a test docstring — and none
+  of them counted button presses, which reach Telegram as outbound calls too. The
+  number is now derived from `scenarios.yml` and `OnCalendar` (25 steps = 23 sends
+  + 2 presses, 4 runs, plus a run summary = 104 a day) and asserted against the
+  timer comment, so prose cannot drift from the scenarios again.
+- The E2E runner's Alertmanager alert now carries its own `endsAt`. Without it
+  Alertmanager dropped the alert after its `resolve_timeout`, so "the bot is
+  still broken" and "the runner stopped reaching Alertmanager" were the same
+  event on the receiving side. The hold window now outlasts the gap to the next
+  run (6h timer plus jitter), and only the runner lets an alert close.
 - `README-testing.md` was unreachable from the README in every bot of the family
   except one. A document nobody can reach is a document nobody reads; it is linked
   from the front page now.
