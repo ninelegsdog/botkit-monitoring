@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `deploy_rollout.sh` syncs the bot's checkout before it touches the container, and
+  refuses the rollout unless `HEAD == origin/main` afterwards. A rollout updates the
+  *image*, but the production clone is a separate artifact, and nothing joined the two:
+  on 13.10 every container ran the current image while all nine clones sat behind their
+  main, so the drift check went red for the whole fleet (`sync-canon.sh` syncs only the
+  monitoring clone). The gate runs `git pull --ff-only` as the clone's owner — a
+  root-run fetch poisons the clone for the next deploy-user git — and sits *before* the
+  "already on target image" skip, because in the drift case the image already equals the
+  target and the skip would return early over the stale checkout. (deferred-work D12)
 - The E2E message budget was three different numbers at once — 76 a day in the
   installed timer, 96 in the repository copy and 36 in a test docstring — and none
   of them counted button presses, which reach Telegram as outbound calls too. The

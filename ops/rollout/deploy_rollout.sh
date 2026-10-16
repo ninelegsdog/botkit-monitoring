@@ -27,6 +27,11 @@ declare -A PORTS=(
 
 REGISTRY="ghcr.io/ninelegsdog"
 DEPLOY_DIR="/home/deploy"
+# The bot clones under $DEPLOY_DIR are owned by this user, while this script runs as root.
+# Every git call against a clone is made as its owner: a root-run fetch leaves root-owned
+# objects behind and the next deploy-user git then fails with "insufficient permission for
+# adding an object to repository database" - the exact trap sync-canon.sh documents.
+GIT_USER="${GIT_USER:-deploy}"
 STATE_DIR="/var/lib/botkit-rollout"
 OVERRIDE_DIR="$STATE_DIR/overrides"
 STATE_FILE="$STATE_DIR/state.txt"
@@ -187,6 +192,7 @@ echo "  target  : $TARGET_IMAGE"
 echo "  service : $SV (compose $COMPOSE_FILE)"
 
 if [[ "$DRY" == 1 ]]; then
+  echo "  (--dry-run) clone: git pull --ff-only as $GIT_USER in $COMPOSE_DIR, refuse unless HEAD == origin/main"
   echo "  (--dry-run) preflight: data/ and backups/ writable by container user -> $(data_preflight || echo FAILED)"
   echo "  (--dry-run) image pin: IMAGE_TAG=$IMG -> $ENV_FILE (currently IMAGE_TAG=$(read_image_tag || echo none))"
   echo "  (--dry-run) plan: pull $TARGET_IMAGE -> IMAGE_TAG=$IMG in env -> up -d --no-deps -> health x$HEALTH_TRIES on 127.0.0.1:$PORT -> metrics>=28 -> rollback to $CUR_IMAGE on failure"
@@ -195,12 +201,6 @@ fi
 
 mkdir -p "$STATE_DIR" "$OVERRIDE_DIR"
 log "=== rollout start bot=$bot target=$TARGET_IMAGE cur=$CUR_IMAGE"
-
-if [[ "$TARGET_IMAGE" == "$CUR_IMAGE" && -z "$FAILPOINT" ]]; then
-  log "bot=$bot already on $TARGET_IMAGE (idempotent skip)"
-  echo "  -> already on target image, nothing to do"
-  exit 0
-fi
 
 health_check() {
   local tries=0 code
@@ -224,6 +224,54 @@ send_alert() {
   curl -s -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5 >/dev/null 2>&1 \
     && log "bot=$bot alert sent ($sev)" || log "bot=$bot WARN alert send failed"
 }
+
+# sync_clone() — bring the bot's checkout to origin/main, as its owner, and prove it.
+#
+# The compose this rollout deploys with comes out of the bot's clone, and the drift check
+# compares that clone's HEAD against origin/main. On 13.10 all nine clones sat behind their
+# main while every container ran the current image: a rollout updated the image, syncing the
+# checkout was a separate command, and between the two it was forgotten. Nothing joined them.
+#
+# The pull is --ff-only on purpose: a checkout that cannot fast-forward to origin/main has
+# local commits or a diverged history, and that is a state a rollout must not paper over by
+# choosing a side. It refuses, and the gate reports why.
+sync_clone() {
+  local head origin
+  if ! su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$COMPOSE_DIR' -C '$COMPOSE_DIR' fetch --quiet origin main" >/dev/null 2>>"$LOG"; then
+    echo "git fetch failed in $COMPOSE_DIR"; return 1
+  fi
+  if ! su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$COMPOSE_DIR' -C '$COMPOSE_DIR' pull --ff-only --quiet origin main" >/dev/null 2>>"$LOG"; then
+    echo "git pull --ff-only failed in $COMPOSE_DIR (diverged checkout or local changes)"; return 1
+  fi
+  head=$(su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$COMPOSE_DIR' -C '$COMPOSE_DIR' rev-parse HEAD" 2>/dev/null)
+  origin=$(su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$COMPOSE_DIR' -C '$COMPOSE_DIR' rev-parse origin/main" 2>/dev/null)
+  if [[ -z "$head" || -z "$origin" ]]; then
+    echo "cannot resolve HEAD/origin/main in $COMPOSE_DIR"; return 1
+  fi
+  if [[ "$head" != "$origin" ]]; then
+    echo "HEAD ${head:0:7} != origin/main ${origin:0:7}"; return 1
+  fi
+  echo "ok(HEAD ${head:0:7})"; return 0
+}
+
+# --- clone freshness gate (D12) -------------------------------------------------------------------
+# Runs before the idempotent skip below, and that ordering is the whole point: in exactly the
+# 13.10 case the image already equals the target, so "already on target image" would return
+# early and wave through the stale checkout this gate exists to catch.
+if ! SYNC=$(sync_clone); then
+  log "bot=$bot CLONE OUT OF SYNC: $SYNC — rollout refused, container untouched"
+  send_alert critical "clone out of sync for $bot ($SYNC) - rollout refused, container untouched"
+  echo "  -> REFUSED: clone $SYNC"
+  echo "  -> fix: su -s /bin/bash $GIT_USER -c \"git -C $COMPOSE_DIR pull --ff-only\""
+  exit 8
+fi
+log "bot=$bot clone synced ($SYNC)"
+
+if [[ "$TARGET_IMAGE" == "$CUR_IMAGE" && -z "$FAILPOINT" ]]; then
+  log "bot=$bot already on $TARGET_IMAGE (idempotent skip)"
+  echo "  -> already on target image, nothing to do"
+  exit 0
+fi
 
 # The image lives in exactly one place: IMAGE_TAG in the bot's env file, which compose
 # already reads through --env-file. It used to live in a second place - a generated
