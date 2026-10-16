@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `botkit-rollout-check.service` now grants its nine bot clones, so the clone-sync
+  gate can actually run. `sync_clone` writes the checkout it deploys from (`git pull
+  --ff-only` as the clone's owner, plus an ownership pass), but the unit pinned
+  `/home/deploy` with `ReadOnlyPaths` — under `ProtectSystem=strict` every real
+  rollout then refused with `Read-only file system (os error 30)`, the unit sat
+  `FAILED`, and the fleet could not update. It stayed invisible for a day because
+  `verify_rollout.sh`'s dry run never writes the clone and the readwrite contract
+  test only inspects write targets it can see as string literals — the clone path is
+  computed from `$DEPLOY_DIR`, so no test had it as an input. `/home/deploy` stays
+  read-only above the clones, so the canon the unit runs from is still protected; a
+  new contract test derives the clones from `check_updates.sh`'s `BOTS` and the unit's
+  grants and fails if they disagree. Found by running the unit, not reading it. (P0)
 - `check_drift.sh` fetched each bot clone as **root**, and the clones belong to
   `deploy:deploy`. A root-run `git fetch` writes root-owned loose objects (mode 600)
   into the object store, after which deploy-user git cannot even read it — *"insufficient

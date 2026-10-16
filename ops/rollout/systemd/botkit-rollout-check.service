@@ -27,9 +27,9 @@ TimeoutStartSec=1800
 # The job's whole purpose is `docker pull` followed by `docker compose up`, as root. That
 # makes root-equivalence unavoidable through the docker socket, so this is defence in depth
 # rather than isolation from root: the daemon's storage and the two state directories are
-# writable, while /etc, /usr and the bot deployments are not - with the deliberate exception of
-# /usr/local/etc/botkit, explained at its ReadWritePaths line. ProtectHome stays off because the
-# maintenance flag is /root/botkit-maintenance.
+# writable, while /etc, /usr and the canon checkout are not - with the deliberate exceptions of
+# /usr/local/etc/botkit and the nine bot clones, each explained at its ReadWritePaths line.
+# ProtectHome stays off because the maintenance flag is /root/botkit-maintenance.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -63,4 +63,31 @@ ReadWritePaths=/var/lib/botkit-rollout /var/log /var/lib/docker /usr/local/etc/b
 # /usr/local/etc/botkit used to be listed in ReadOnlyPaths as well. systemd applies ReadWritePaths
 # after ReadOnlyPaths, so it would have won anyway - but a path in both lists reads like a mistake
 # to whoever touches this file next, and that reader cannot tell which one is intended.
+#
+# The nine bot clones are writable, and this is the point, not an oversight. The clone-sync gate
+# (deploy_rollout.sh, D12) brings each clone to origin/main with `git pull --ff-only` as its owner
+# before the container is touched, so the rollout writes the checkout it deploys from: git writes
+# .git and, on a real update, the working tree, and the ownership pass rewrites the tree's
+# metadata. /home/deploy itself stays read-only above - only the bot clones are opened, so a
+# rollout cannot write the canon checkout it runs from, the backups tree, or a sibling clone.
+#
+# The '-' prefix skips a clone that is absent: without it systemd refuses to start the unit
+# whenever one listed path is missing, so a single renamed bot would turn every rollout on the
+# host off rather than fail that one bot loudly. botkit-drift.service opens the .git of the same
+# nine clones for its own fetch and carries the same lesson at length.
+#
+# Found on 16.10: sync_clone began writing the clone on 15.10 while this unit still pinned
+# /home/deploy whole, so every real rollout refused with EROFS and the unit sat FAILED - while
+# verify_rollout.sh's dry run, which never writes the clone, stayed green and the readwrite
+# contract test only looked for write targets it can see as string literals. Same class as 03.10,
+# one directory down, found by running the unit rather than reading it.
+ReadWritePaths=-/home/deploy/botkit-bookingbot
+ReadWritePaths=-/home/deploy/botkit-leadgen
+ReadWritePaths=-/home/deploy/botkit-store
+ReadWritePaths=-/home/deploy/botkit-support
+ReadWritePaths=-/home/deploy/botkit-membership
+ReadWritePaths=-/home/deploy/botkit-pricesentry
+ReadWritePaths=-/home/deploy/botkit-docuflow
+ReadWritePaths=-/home/deploy/botkit-delivery
+ReadWritePaths=-/home/deploy/botkit-reminder
 ReadOnlyPaths=/home/deploy

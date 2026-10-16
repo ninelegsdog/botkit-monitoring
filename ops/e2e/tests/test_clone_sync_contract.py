@@ -24,11 +24,14 @@ refusal.
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 ROLLOUT_SH = REPO / "ops" / "rollout" / "deploy_rollout.sh"
+CHECK_UPDATES_SH = REPO / "ops" / "rollout" / "check_updates.sh"
+UNIT = REPO / "ops" / "rollout" / "systemd" / "botkit-rollout-check.service"
 
 
 @pytest.fixture(scope="module")
@@ -153,4 +156,106 @@ def test_dry_run_reports_the_clone_sync(rollout: str) -> None:
     )
     assert "HEAD == origin/main" in dry, (
         "--dry-run does not state the condition the gate refuses on"
+    )
+
+
+# --- the sandbox grant the gate needs from the unit ----------------------------------------------
+
+
+def _bots() -> list[str]:
+    """The fleet, from the one place that iterates it.
+
+    check_updates.sh's BOTS array decides which clones the gate will touch, so deriving the list
+    from it means a tenth bot is covered the day it lands rather than the day someone remembers
+    this test.
+    """
+    match = re.search(r"^BOTS=\((.*?)\)", CHECK_UPDATES_SH.read_text(), re.MULTILINE)
+    assert match, "cannot find the BOTS array in check_updates.sh - the fleet list moved"
+    bots = match.group(1).split()
+    assert bots, "the BOTS array is empty"
+    return bots
+
+
+def _deploy_dir(rollout: str) -> str:
+    match = re.search(r'^DEPLOY_DIR="([^"]+)"', rollout, re.MULTILINE)
+    assert match, "cannot find DEPLOY_DIR in deploy_rollout.sh"
+    return match.group(1)
+
+
+def _granted(unit_text: str) -> set[str]:
+    """Every path the unit's ReadWritePaths grants, with the '-' prefix stripped."""
+    granted: set[str] = set()
+    for line in unit_text.splitlines():
+        if line.startswith("ReadWritePaths="):
+            for part in line[len("ReadWritePaths=") :].split():
+                granted.add(part.lstrip("-"))
+    return granted
+
+
+def _ungranted_clones(clones: list[str], granted: set[str]) -> list[str]:
+    def allowed(path: str) -> bool:
+        return path in granted or any(path.startswith(g.rstrip("/") + "/") for g in granted)
+
+    return sorted(c for c in clones if not allowed(c))
+
+
+def _clones(rollout: str) -> list[str]:
+    return [f"{_deploy_dir(rollout)}/botkit-{bot}" for bot in _bots()]
+
+
+def test_the_rollout_unit_may_write_every_clone_the_gate_syncs(rollout: str) -> None:
+    """The gate writes the clone; the unit's sandbox must allow it, and the two must agree.
+
+    sync_clone runs `git pull --ff-only` as the clone's owner and re-owns the tree, so a rollout
+    writes /home/deploy/botkit-<bot>: git writes .git and, on a real update, the working tree, and
+    chown rewrites the tree's metadata. The unit pins /home/deploy with ReadOnlyPaths, so every
+    clone it intends to sync has to be handed back with its own ReadWritePaths line.
+
+    On 16.10 the two disagreed. sync_clone started writing the clone on 15.10 while the unit still
+    pinned /home/deploy whole, so every real rollout refused with EROFS and the unit sat FAILED,
+    while the suite stayed green: the readwrite contract test only inspects write targets it can
+    see as string literals (/var/log, /var/lib/botkit-*), and the clone path is computed from
+    $DEPLOY_DIR, so it was never an input. verify_rollout.sh's dry run never writes the clone
+    either. Finding it took running the unit, not reading it.
+    """
+    granted = _granted(UNIT.read_text())
+    missing = _ungranted_clones(_clones(rollout), granted)
+    assert not missing, (
+        f"deploy_rollout.sh syncs {missing} but the rollout unit's ReadWritePaths does not grant "
+        f"them: {sorted(granted)}. ProtectSystem=strict makes the clone read-only, sync_clone "
+        "fails with EROFS, the gate refuses, and every rollout on the host stops - while a dry "
+        "run, which never writes the clone, stays green."
+    )
+
+
+def test_the_clone_grant_check_can_fail() -> None:
+    """The check above must be able to go red, or it is decoration.
+
+    Mutation: /home/deploy is pinned read-only and only two of three clones are granted, so the
+    ungranted one has to come back. A _ungranted_clones that returned [] for any input would let
+    the positive test pass against a unit with no clone grants at all.
+    """
+    granted = {"/home/deploy/botkit-a", "/home/deploy/botkit-b"}
+    clones = ["/home/deploy/botkit-a", "/home/deploy/botkit-b", "/home/deploy/botkit-c"]
+    assert _ungranted_clones(clones, granted) == ["/home/deploy/botkit-c"]
+
+
+def test_the_unit_still_pins_deploy_read_only_around_the_clones(rollout: str) -> None:
+    """Opening the clones must not mean opening /home/deploy.
+
+    The canon checkout the unit executes from lives under /home/deploy/botkit-monitoring; a bare
+    ReadWritePaths=/home/deploy would hand a rollout write access to the script it is running.
+    """
+    deploy_dir = _deploy_dir(rollout)
+    text = UNIT.read_text()
+    read_only: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("ReadOnlyPaths="):
+            read_only.update(part.lstrip("-") for part in line[len("ReadOnlyPaths=") :].split())
+    assert deploy_dir in read_only, (
+        f"{deploy_dir} is no longer pinned read-only; the clones must be opened one by one, not "
+        "by widening the parent"
+    )
+    assert deploy_dir not in _granted(text), (
+        f"ReadWritePaths grants all of {deploy_dir}, which includes the canon the unit runs from"
     )
