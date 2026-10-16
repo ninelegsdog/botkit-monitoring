@@ -32,6 +32,9 @@ GIT_USER="${GIT_USER:-deploy}"
 # is one deploy away from diverging, with nothing watching it. Same reasoning as the unit's
 # ExecStart: the file that runs should be the file that is in version control.
 VALIDATOR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/validate_compose.py"
+# Корень канона — тем же способом, что и VALIDATOR: путь, выведенный из файла, не
+# разъезжается с файлом. Нужен шагу проверки рантайм-бандла webhook-проверки ниже.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # CHANNEL arrives from fleet.sh, which fails at load time if it is unset. It used to be
 # read from a hand-written /opt/botkit-rollout/version.conf that lived outside git, with a
 # hardcoded v0.8.2 fallback - so a missing marker silently turned the image-tag check into a
@@ -151,6 +154,34 @@ fetch_clone() { # $1 = clone dir
 }
 
 rc_total=0
+
+# --- мониторинговый канон: рантайм-бандл webhook-проверки должен совпадать с ним ---
+# Единственная копия, которую исполняет systemd, живёт в root-owned /root и ставится
+# sync-canon.sh. Ручная правка там до сих пор не была видна никому: sync-canon сверяет
+# клон с origin, а не рантайм с каноном, и 16.10.2026 копия webhook_check.py отставала
+# от канона на две версии при зелёных проверках. Здесь рантайм и канон сверяются —
+# расхождение уходит в лог, в Alertmanager и метрикой в Grafana.
+#
+# Отсутствующий каталог не репортится: без бандла падает сам юнит, а это громче строки
+# дрейфа (healthcheck считает FAILED-юниты). Отсутствие — забота другого гейта, здесь
+# проверяется равенство содержимого.
+#
+# Severity — warning. Дрейф сам не проходит, а critical send_alert повторяет каждые
+# 15 минут (critical не троттлится) — это поток на состояние, которое ждёт человека.
+# Prometheus-правило поднимет его в Grafana независимо от троттла.
+WEBHOOK_CHECK_DIR=${WEBHOOK_CHECK_DIR:-/root/botkit-webhook-check}
+if [ -d "$WEBHOOK_CHECK_DIR" ]; then
+  if bash "$REPO_ROOT/ops/e2e/install-webhook-check.sh" --check \
+       --repo "$REPO_ROOT" --dest "$WEBHOOK_CHECK_DIR" >>"$LOG" 2>&1; then
+    echo 'botkit_drift_ok{bot="monitoring"} 1' >> "$METRICS_TMP"
+  else
+    log "DRIFT webhook-check bundle differs from canon ($WEBHOOK_CHECK_DIR)"
+    send_alert monitoring warning "webhook-check runtime bundle differs from canon; run ops/e2e/install-webhook-check.sh"
+    echo 'botkit_drift_ok{bot="monitoring"} 0' >> "$METRICS_TMP"
+    rc_total=1
+  fi
+fi
+
 for entry in $BOTS; do
   bot="${entry%%:*}"
   port="${entry##*:}"
