@@ -22,6 +22,10 @@ LOG="${BOTKIT_SMOKE_LOG:-/var/log/botkit-smoke.log}"
 AM_URL="$ALERTMANAGER_ALERTS_URL"
 ALERTED_DIR="${BOTKIT_SMOKE_ALERTED_DIR:-/var/backups/botkit-smoke/alerted}"
 THROTTLE=3600   # 1h между повторными алертами на бота
+# How long a raised alert stays firing, in seconds (must exceed THROTTLE + the 30m tick,
+# or the alert lapses between throttled posts). A bare POST has no endsAt, so Alertmanager
+# applies its own 5m resolve_timeout and a persisting smoke failure reads as resolved.
+ALERT_HOLD=7200
 mkdir -p "$ALERTED_DIR"
 
 # An unwritable log is not a cosmetic problem: the run would report PASS with no
@@ -74,11 +78,18 @@ send_alert() { # $1=bot $2=reason
     age=$(( $(date +%s) - $(stat -c %Y "$last") ))
     [ "$age" -lt "$THROTTLE" ] && { log "ALERT throttled $bot ($reason)"; return 0; }
   fi
+  local starts ends code
+  starts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  ends=$(date -u -d "+${ALERT_HOLD} seconds" +"%Y-%m-%dT%H:%M:%SZ")
   local payload
-  payload="[{\"labels\":{\"alertname\":\"BotkitSmokeFailed\",\"severity\":\"critical\",\"bot\":\"$bot\",\"service\":\"botkit-smoke\"},\"annotations\":{\"summary\":\"smoke fail $bot\",\"description\":\"${reason:0:200}\"}}]"
-  curl -s -o /dev/null -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5 \
-    && { echo "$(now)" > "$last"; log "ALERT sent ($bot): $reason"; } \
-    || log "ALERT send FAILED ($bot): $reason"
+  payload="[{\"labels\":{\"alertname\":\"BotkitSmokeFailed\",\"severity\":\"critical\",\"bot\":\"$bot\",\"service\":\"botkit-smoke\"},\"annotations\":{\"summary\":\"smoke fail $bot\",\"description\":\"${reason:0:200}\"},\"startsAt\":\"$starts\",\"endsAt\":\"$ends\"}]"
+  # The verdict is the HTTP status, not curl's exit code: curl exits 0 on a 400, so
+  # `curl && log sent` marked a rejected alert as delivered.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5) || code=000
+  case "$code" in
+    2??) echo "$(now)" > "$last"; log "ALERT sent ($bot): $reason" ;;
+    *)   log "ALERT send FAILED ($bot, http=$code): $reason" ;;
+  esac
 }
 
 FAIL=0

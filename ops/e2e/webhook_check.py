@@ -314,8 +314,13 @@ def resolve_alert(bot: str, log: Log) -> None:
             {
                 "labels": alert_labels(bot),
                 "annotations": {"summary": f"telegram webhook delivery restored: {bot}"},
-                "startsAt": now.isoformat(),
-                "endsAt": now.isoformat(),
+                # Alertmanager rejects an alert whose start is not strictly before its end:
+                # "start time must be before end time" (HTTP 400). The old startsAt == endsAt
+                # therefore never resolved anything - the alert stayed firing until its hold
+                # window expired. Both stamps sit in the past, one second apart, which marks
+                # the alert resolved immediately.
+                "startsAt": (now - timedelta(seconds=2)).isoformat(),
+                "endsAt": (now - timedelta(seconds=1)).isoformat(),
             }
         ]
     )

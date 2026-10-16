@@ -26,6 +26,10 @@ AM_URL="$ALERTMANAGER_ALERTS_URL"
 # never been executed anywhere.
 OTLP_URL="$OTLP_HTTP_URL"
 THROTTLE=1800
+# How long a raised alert stays firing, in seconds (must exceed THROTTLE, or the alert
+# lapses between throttled posts). A bare POST has no endsAt, so Alertmanager applies its
+# own 5m resolve_timeout and a persistent collector/Tempo outage reads as resolved.
+ALERT_HOLD=3600
 RETRIES=5
 SLEEP_S=3
 
@@ -45,11 +49,18 @@ send_alert() { # $1=sev $2=reason
     age=$(( cur - $(stat -c %Y "$last") ))
     [ "$age" -lt "$THROTTLE" ] && { log "ALERT throttled ($reason)"; return 0; }
   fi
+  local starts ends code
+  starts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  ends=$(date -u -d "+${ALERT_HOLD} seconds" +"%Y-%m-%dT%H:%M:%SZ")
   local payload
-  payload="[{\"labels\":{\"alertname\":\"BotkitTraceMissing\",\"severity\":\"$sev\",\"service\":\"$SERVICE\",\"bot\":\"otlp-e2e\"},\"annotations\":{\"summary\":\"OTLP e2e span not in Tempo\",\"description\":\"${reason:0:200}\"}}]"
-  curl -s -o /dev/null -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5 \
-    && { echo "$(now)" > "$last"; log "ALERT sent ($sev): $reason"; } \
-    || log "ALERT send FAILED: $reason"
+  payload="[{\"labels\":{\"alertname\":\"BotkitTraceMissing\",\"severity\":\"$sev\",\"service\":\"$SERVICE\",\"bot\":\"otlp-e2e\"},\"annotations\":{\"summary\":\"OTLP e2e span not in Tempo\",\"description\":\"${reason:0:200}\"},\"startsAt\":\"$starts\",\"endsAt\":\"$ends\"}]"
+  # The verdict is the HTTP status, not curl's exit code: curl exits 0 on a 400, so
+  # `curl && log sent` marked a rejected alert as delivered.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5) || code=000
+  case "$code" in
+    2??) echo "$(now)" > "$last"; log "ALERT sent ($sev): $reason" ;;
+    *)   log "ALERT send FAILED (http=$code): $reason" ;;
+  esac
 }
 
 # --- generate 32-hex traceId + 16-hex spanId (nanos now)
