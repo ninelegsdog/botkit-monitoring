@@ -7,7 +7,7 @@ how coverage gaps appear in the first place.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -143,7 +143,14 @@ def test_resolve_closes_alert_and_clears_marker(tmp_path, monkeypatch):
     runner.resolve_alert("leadgen", log)
 
     assert len(posted) == 2
-    assert posted[1][0]["endsAt"] == posted[1][0]["startsAt"], "resolve must expire the alert immediately"
+    starts = datetime.fromisoformat(posted[1][0]["startsAt"])
+    ends = datetime.fromisoformat(posted[1][0]["endsAt"])
+    # Alertmanager rejects an alert whose start is not strictly before its end ("start time
+    # must be before end time", HTTP 400). startsAt == endsAt - the old payload - therefore
+    # resolved nothing, and the alert stayed firing until its hold window expired. This
+    # assertion pins the valid window, not the cosmetic shape of the payload.
+    assert ends > starts, "Alertmanager rejects startsAt == endsAt; the resolve never clears"
+    assert ends <= datetime.now(timezone.utc), "a resolve must end in the past to clear the alert"
     assert not (tmp_path / "alerted" / "leadgen").exists()
 
 

@@ -44,6 +44,12 @@ LOG="/var/log/botkit-rollout.log"
 AM_URL="$ALERTMANAGER_ALERTS_URL"
 HEALTH_TRIES=6
 HEALTH_WAIT=3
+# How long a raised alert stays firing, in seconds. A bare POST has no endsAt, so
+# Alertmanager applies its own resolve_timeout (5m) and the alert vanishes five minutes
+# after a rollout tick that runs every fifteen - a still-failing rollout reads as
+# "resolved" between attempts. We name the end, well past the tick, so a persistent
+# failure stays continuously firing until the rollout clears.
+ALERT_HOLD=3600
 
 # Flags are parsed by shape, not by position. The original took IMG="${2:-main}" blindly,
 # so `--failpoint=health` - the drill documented in this file's own header - landed in the
@@ -220,9 +226,17 @@ send_alert() {
     log "bot=$bot (failpoint, alert suppressed): $reason"
     return
   fi
-  payload="[{\"labels\":{\"alertname\":\"BotkitRolloutFailed\",\"severity\":\"$sev\",\"bot\":\"$bot\",\"service\":\"botkit-rollout\"},\"annotations\":{\"summary\":\"rollout fail $bot\",\"description\":\"${reason:0:200}\"}}]"
-  curl -s -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5 >/dev/null 2>&1 \
-    && log "bot=$bot alert sent ($sev)" || log "bot=$bot WARN alert send failed"
+  local starts ends code
+  starts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  ends=$(date -u -d "+${ALERT_HOLD} seconds" +"%Y-%m-%dT%H:%M:%SZ")
+  payload="[{\"labels\":{\"alertname\":\"BotkitRolloutFailed\",\"severity\":\"$sev\",\"bot\":\"$bot\",\"service\":\"botkit-rollout\"},\"annotations\":{\"summary\":\"rollout fail $bot\",\"description\":\"${reason:0:200}\"},\"startsAt\":\"$starts\",\"endsAt\":\"$ends\"}]"
+  # The verdict is the HTTP status, not curl's exit code: curl exits 0 on a 400, so
+  # `curl -s ... && log sent` printed "alert sent" for an alert Alertmanager rejected.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5) || code=000
+  case "$code" in
+    2??) log "bot=$bot alert sent ($sev)" ;;
+    *)   log "bot=$bot WARN alert send failed (http=$code)" ;;
+  esac
 }
 
 # sync_clone() — bring the bot's checkout to origin/main, as its owner, and prove it.

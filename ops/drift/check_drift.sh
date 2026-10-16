@@ -45,6 +45,12 @@ TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_drift.prom}
 AM_URL="$ALERTMANAGER_ALERTS_URL"
 THROTTLE=21600   # 6h между повторами алерта
 GRACE_S=1800     # 30 мин окно rollout для tracking-mismatch
+# How long a raised alert stays firing, in seconds. It must exceed THROTTLE: the
+# producer re-posts at most once per throttle window, so an endsAt shorter than that
+# lets the alert lapse between posts and a stuck drift reads as healthy. Named here
+# (not left to Alertmanager's 5m resolve_timeout) because a bare POST expires in five
+# minutes, which is the bug this fixes.
+ALERT_HOLD=25200  # 7h > THROTTLE + один тик
 
 BOTS="$FLEET"   # S1: no inline fallback. A hardcoded default here is how two
                 # sources of truth come to disagree silently. BASE_URL and the
@@ -74,11 +80,18 @@ send_alert() { # $1=b $2=sev $3=reason
     age=$(( $(now_s) - $(stat -c %Y "$last") ))
     [ "$age" -lt "$THROTTLE" ] && { log "ALERT throttled $bot ($sev: $reason)"; return 0; }
   fi
+  local starts ends code
+  starts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  ends=$(date -u -d "+${ALERT_HOLD} seconds" +"%Y-%m-%dT%H:%M:%SZ")
   local payload
-  payload="[{\"labels\":{\"alertname\":\"BotkitDrift\",\"severity\":\"$sev\",\"bot\":\"$bot\",\"service\":\"botkit-drift\"},\"annotations\":{\"summary\":\"drift $bot\",\"description\":\"${reason:0:200}\"}}]"
-  curl -s -o /dev/null -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5 \
-    && { echo "$(now)" > "$last"; log "ALERT sent ($sev $bot): $reason"; } \
-    || log "ALERT send FAILED ($bot): $reason"
+  payload="[{\"labels\":{\"alertname\":\"BotkitDrift\",\"severity\":\"$sev\",\"bot\":\"$bot\",\"service\":\"botkit-drift\"},\"annotations\":{\"summary\":\"drift $bot\",\"description\":\"${reason:0:200}\"},\"startsAt\":\"$starts\",\"endsAt\":\"$ends\"}]"
+  # The verdict is the HTTP status, not curl's exit code: curl exits 0 on a 400, so
+  # the old `curl && log sent` marked a rejected alert as delivered.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d "$payload" -H "Content-Type: application/json" "$AM_URL" --max-time 5) || code=000
+  case "$code" in
+    2??) echo "$(now)" > "$last"; log "ALERT sent ($sev $bot): $reason" ;;
+    *)   log "ALERT send FAILED ($bot, http=$code): $reason" ;;
+  esac
 }
 
 # Which repository paths end up inside the image, read out of the recipe rather than assumed.

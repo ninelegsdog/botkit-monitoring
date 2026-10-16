@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Every Alertmanager producer now names its own alert lifetime. A payload without
+  `endsAt` lets Alertmanager apply its own `resolve_timeout` (5m), while the producers
+  re-fire every 15–60 minutes — so a still-broken condition was absent from
+  `/api/v2/alerts` most of the time, and the rollout alert logged `alert sent (critical)`
+  into an empty Alertmanager. `deploy_rollout.sh`, `check_drift.sh`, `otlp-e2e.sh`,
+  `smoke_all.sh` and `check_backups.sh` now each set an `endsAt` longer than their own
+  throttle window, and judge delivery by the HTTP status instead of curl's exit code:
+  curl exits 0 on the 400 Alertmanager returns for a payload it rejects, so the old
+  `curl -s … && log sent` reported refused alerts as delivered, and `check_backups.sh`'s
+  `|| true` also wrote the throttle marker, suppressing the retry for six hours. In the
+  same class, `webhook_check.py`'s `resolve_alert` posted `startsAt == endsAt`, which
+  Alertmanager rejects outright (*"start time must be before end time"*) — so a recovered
+  bot's alert never cleared and stayed firing for its whole hold window. A new
+  `test_alert_contract.py` reads `send_alert` out of every producer and fails if `endsAt`
+  or the HTTP-status check disappears. (P1)
 - `botkit-rollout-check.service` now grants its nine bot clones, so the clone-sync
   gate can actually run. `sync_clone` writes the checkout it deploys from (`git pull
   --ff-only` as the clone's owner, plus an ownership pass), but the unit pinned

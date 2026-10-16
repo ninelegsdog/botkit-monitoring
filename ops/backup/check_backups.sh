@@ -19,6 +19,10 @@ ALERTED_DIR=/var/backups/botkit/alerted
 AM_URL="$ALERTMANAGER_ALERTS_URL"
 MAX_AGE=25200   # 7h (timer бэкапа = 6h)
 THROTTLE=21600  # 6h между повторными алертами
+# How long a raised alert stays firing, in seconds (must exceed THROTTLE, or the alert
+# lapses between throttled posts). A bare POST has no endsAt, so Alertmanager applies its
+# own 5m resolve_timeout and a still-broken backup reads as resolved between hourly runs.
+ALERT_HOLD=25200  # 7h > THROTTLE + один прогон
 # Same rule as backup_bots.sh: a directory name is not evidence that something
 # is a bot. botkit-monitoring, botkit-shared-redis and the fleet snapshot
 # directory /home/deploy/botkit-backups/ all match botkit-*/ and were counted
@@ -41,11 +45,18 @@ send_alert() {
     local age=$(( NOW - $(stat -c %Y "$last") ))
     [ "$age" -lt "$THROTTLE" ] && return 0
   fi
-  local ts
-  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  local payload="[{\"labels\":{\"alertname\":\"BackupProblem\",\"severity\":\"critical\",\"bot\":\"$bot\",\"service\":\"botkit-backup\"},\"annotations\":{\"summary\":\"Backup problem: $bot\",\"description\":\"$reason (checked $ts)\"}}]"
-  curl -s -o /dev/null -XPOST "$AM_URL" -H 'Content-Type: application/json' -d "$payload" || true
-  echo "$ts" > "$last"
+  local ts ends code
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  ends=$(date -u -d "+${ALERT_HOLD} seconds" +"%Y-%m-%dT%H:%M:%SZ")
+  local payload="[{\"labels\":{\"alertname\":\"BackupProblem\",\"severity\":\"critical\",\"bot\":\"$bot\",\"service\":\"botkit-backup\"},\"annotations\":{\"summary\":\"Backup problem: $bot\",\"description\":\"$reason (checked $ts)\"},\"startsAt\":\"$ts\",\"endsAt\":\"$ends\"}]"
+  # The verdict is the HTTP status, not curl's exit code: curl exits 0 on a 400. The old
+  # `curl ... || true` swallowed a rejected alert AND still wrote the throttle marker, so a
+  # silently-rejected critical alert was also suppressed for the next six hours.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$AM_URL" -H 'Content-Type: application/json' -d "$payload") || code=000
+  case "$code" in
+    2??) echo "$ts" > "$last" ;;
+    *)   echo "ALERT send FAILED ($bot, http=$code): $reason" >&2 ;;
+  esac
 }
 
 for bot in $BOTS; do
