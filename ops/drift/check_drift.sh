@@ -18,6 +18,15 @@ set -uo pipefail
 
 DEPLOY_ROOT=/home/deploy
 ENV_ROOT=/usr/local/etc/botkit
+# The clones under DEPLOY_ROOT are owned by deploy:deploy, and git against them must run as
+# that owner. This script runs as root (it needs docker, the root:root env files and the
+# node-exporter textfile), but a root-run `git fetch` writes root-owned objects into a
+# deploy-owned clone, and the next deploy-user git - the rollout's clone sync - then fails
+# with "insufficient permission for adding an object to repository database". That is exactly
+# how this check poisoned all nine clones: their object stores carry root-owned loose objects
+# (mode 600) from fetches this script made as root. See sync-canon.sh, which documents the
+# same trap for the monitoring clone.
+GIT_USER="${GIT_USER:-deploy}"
 # Resolved relative to this file rather than pinned to /opt/botkit-drift. The pinned path
 # pointed at a hand-installed copy that was byte-identical to this repository's file - which
 # is one deploy away from diverging, with nothing watching it. Same reasoning as the unit's
@@ -116,6 +125,18 @@ deploy_ignore_patterns() {
     | sed -n "s/^[[:space:]]*-[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p"
 }
 
+# Fetch as the clone's owner, never as root. When this script is not root (the offline
+# contract tests run it as the CI user), there is no separate owner to switch to and the
+# fetch runs directly - the root problem only exists because root and the clone owner differ.
+fetch_clone() { # $1 = clone dir
+  local d="$1"
+  if [ "$(id -u)" = 0 ]; then
+    su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$d' -C '$d' fetch --quiet origin main"
+  else
+    git -c safe.directory="$d" -C "$d" fetch --quiet origin main
+  fi
+}
+
 rc_total=0
 for entry in $BOTS; do
   bot="${entry%%:*}"
@@ -127,7 +148,7 @@ for entry in $BOTS; do
   track=()
 
   # --- HEAD vs origin/main (tracking) ---
-  if ! git -c safe.directory="$d" -C "$d" fetch --quiet origin main 2>>"$LOG"; then
+  if ! fetch_clone "$d" 2>>"$LOG"; then
     track+=("git fetch failed")
   else
     head=$(git -c safe.directory="$d" -C "$d" rev-parse HEAD 2>/dev/null)

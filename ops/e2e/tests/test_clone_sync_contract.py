@@ -99,6 +99,24 @@ def test_the_clone_git_runs_as_its_owner(rollout: str) -> None:
     )
 
 
+def test_the_clone_is_owned_before_the_fetch(rollout: str) -> None:
+    """A poisoned object store makes deploy-user git fail, so ownership is normalised first.
+
+    The 13.10 healing and the drift check both ran git as root and left root-owned loose objects
+    (mode 600, e.g. 56b5541c) in the deploy-owned clones, so deploy-user git cannot even read
+    them: the fetch fails and the gate that exists to heal the drift can never pass. The checkout
+    is re-owned before any git call - but the container's bind-mounts are excluded, because
+    data_preflight refuses a rollout whose data/ or backups/ is not on the runtime uid.
+    """
+    body = _body(rollout, "sync_clone() {", "\n}")
+    own = body.index("-exec chown -R")
+    fetch = body.index("fetch --quiet origin main")
+    assert own < fetch, "the object store is re-owned after the fetch - the fetch fails on it"
+    assert "-name data -prune" in body and "-name backups -prune" in body, (
+        "the ownership pass does not exclude the container bind-mounts (data/, backups/)"
+    )
+
+
 def test_the_pull_is_fast_forward_only(rollout: str) -> None:
     """A diverged checkout must refuse, not have a side chosen for it.
 

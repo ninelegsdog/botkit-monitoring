@@ -708,3 +708,27 @@ def test_throttle_keys_are_separate_per_severity(sandbox: Sandbox) -> None:
 
     keys = sorted(p.name for p in (sandbox.root / "state" / "alerted").iterdir())
     assert keys == [f"{BOT}.critical", f"{BOT}.warning"], keys
+
+
+def test_the_fetch_runs_as_the_clone_owner() -> None:
+    """The drift check fetched as root and poisoned every bot clone.
+
+    check_drift.sh runs as root - it needs docker, the root:root env files and the
+    node-exporter textfile - but the clones under /home/deploy belong to deploy:deploy. A
+    root-run `git fetch` writes root-owned loose objects (mode 600) into the clone; the next
+    deploy-user git then fails with "insufficient permission for adding an object to
+    repository database" and cannot even read the store. On 15.10 this left all nine clones
+    un-fetchable, so the rollout's clone-sync gate could never pass. The fetch is delegated to
+    the owner, and only when running as root - the offline tests below run the script as the
+    CI user, where there is no separate owner to drop to.
+    """
+    src = DRIFT_SH.read_text()
+    fetch_lines = [ln for ln in src.splitlines() if "fetch --quiet origin main" in ln]
+    assert fetch_lines, "check_drift.sh no longer fetches origin/main"
+    assert any('su -s /bin/bash "$GIT_USER"' in ln for ln in fetch_lines), (
+        "the drift check fetches as root; the next deploy-user git cannot read the root-owned objects"
+    )
+    assert 'if [ "$(id -u)" = 0 ]' in src, (
+        "the fetch is not guarded on being root, so the offline sandbox (a CI user) would need su"
+    )
+    assert 'GIT_USER="${GIT_USER:-deploy}"' in src, "the clone owner is not defaulted to deploy"
