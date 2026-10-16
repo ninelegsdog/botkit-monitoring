@@ -27,13 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `check_drift.sh` fetched each bot clone as **root**, and the clones belong to
+  `deploy:deploy`. A root-run `git fetch` writes root-owned loose objects (mode 600)
+  into the object store, after which deploy-user git cannot even read it — *"insufficient
+  permission for adding an object to repository database"*. On 15.10 that left all nine
+  clones un-fetchable, which is why the new clone-sync gate in `deploy_rollout.sh` could
+  never pass: the gate's own `git pull` runs as `deploy` and failed on the very objects the
+  drift check had written. The fetch now drops to the clone's owner (guarded on being root,
+  so the offline contract tests still run it directly). (deferred-work D12)
 - `deploy_rollout.sh` syncs the bot's checkout before it touches the container, and
   refuses the rollout unless `HEAD == origin/main` afterwards. A rollout updates the
   *image*, but the production clone is a separate artifact, and nothing joined the two:
   on 13.10 every container ran the current image while all nine clones sat behind their
   main, so the drift check went red for the whole fleet (`sync-canon.sh` syncs only the
-  monitoring clone). The gate runs `git pull --ff-only` as the clone's owner — a
-  root-run fetch poisons the clone for the next deploy-user git — and sits *before* the
+  monitoring clone). The gate re-owns the checkout (never the container's `data/` and
+  `backups/` mounts, which must stay on the runtime uid) and runs `git pull --ff-only`
+  as the clone's owner — a root-run fetch poisons the clone for the next deploy-user git
+  — and sits *before* the
   "already on target image" skip, because in the drift case the image already equals the
   target and the skip would return early over the stale checkout. (deferred-work D12)
 - The E2E message budget was three different numbers at once — 76 a day in the

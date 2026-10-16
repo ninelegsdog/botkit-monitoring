@@ -237,6 +237,16 @@ send_alert() {
 # choosing a side. It refuses, and the gate reports why.
 sync_clone() {
   local head origin
+  # Own the checkout before any git call. These clones carry root-owned objects - the 13.10
+  # healing ran `git pull` as root, and the drift check fetched as root, leaving loose objects
+  # mode 600 root:root (e.g. 56b5541c). Deploy-user git then cannot read or write the object
+  # store at all: "insufficient permission for adding an object to repository database". The
+  # ownership pass mirrors sync-canon.sh, but never touches the container's bind-mounts:
+  # data/ and backups/ belong to the runtime uid 1001, and the preflight below refuses a rollout
+  # whose mounts are not, so chowning them here would turn a stale clone into a refused rollout.
+  find "$COMPOSE_DIR" -mindepth 1 -maxdepth 1 \
+    -name data -prune -o -name backups -prune -o \
+    -exec chown -R "$GIT_USER:$GIT_USER" {} + 2>>"$LOG"
   if ! su -s /bin/bash "$GIT_USER" -c "git -c safe.directory='$COMPOSE_DIR' -C '$COMPOSE_DIR' fetch --quiet origin main" >/dev/null 2>>"$LOG"; then
     echo "git fetch failed in $COMPOSE_DIR"; return 1
   fi
