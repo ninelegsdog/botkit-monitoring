@@ -147,4 +147,16 @@ else
 fi
 [ "$_data_fail" -eq 0 ] || exit 1
 
+echo "=== 5. webhook-check runtime bundle must match the canon ==="
+# Шаги 4/4b проверяли содержимое *клона* — то, что обновляется само. Единственную
+# копию, которую исполняет systemd, маркер не покрывал: 16.10.2026
+# /root/botkit-webhook-check/webhook_check.py отставал от канона на две версии, и
+# ни один гейт об этом не сказал. Установщик ставит бандл из клона и сверяет хэши
+# после записи, поэтому «SYNC OK» теперь означает и «рантайм равен канону».
+# В --check-only этот шаг не идёт: там проверяются assertions клона, а не состояние
+# хоста, и на чистом scratch-копии /root-каталога нет.
+if [ "$CHECK_ONLY" != 1 ]; then
+  bash "$REPO/ops/e2e/install-webhook-check.sh" --repo "$REPO"
+fi
+
 echo "SYNC OK $head_sha"

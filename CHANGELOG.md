@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The webhook-check runtime bundle is installed from the canon instead of by hand.
+  `ops/e2e/install-webhook-check.sh` writes the four `ops/e2e` scripts and
+  `ops/lib/fleet.env` into a root-owned directory (`0700`, config `0600`), atomically,
+  and verifies the hashes it wrote; a `--check` run reports `DRIFT` or `MISSING`
+  without touching anything. `sync-canon.sh` runs it on the real path, so `SYNC OK`
+  again means the runtime equals the canon, and `check_drift.sh` exports
+  `botkit_drift_ok{bot="monitoring"}` so the comparison shows up in Grafana, not only
+  in the log.
+
 - `test_unit_sets_a_private_umask_for_what_it_writes` pins `UMask=0077` in the E2E
   unit. The session is an account credential and the status markers are the runner's
   only other output; without the directive both are created with the host umask, and
@@ -27,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The runtime `botkit-webhook-check.service` executes lives outside git and nothing
+  updated it. `sync-canon.sh` asserted the *clone* — the one copy that updates itself —
+  while the copy systemd actually runs sits in a root-owned `/root/botkit-webhook-check`
+  that had to be maintained by hand. On 16.10 it was two versions behind the canon, and
+  its `fleet.env` was missing `ALERTMANAGER_ALERTS_URL`, which is the difference between
+  a failed webhook posting an alert and printing "alert not sent" — every gate was green.
+  `sync-canon.sh` now installs the bundle from the canon and `check_drift.sh` compares the
+  installed copy against it on every run, so the copy outside git has a gate of its own
+  for the first time. (P1)
 - Every Alertmanager producer now names its own alert lifetime. A payload without
   `endsAt` lets Alertmanager apply its own `resolve_timeout` (5m), while the producers
   re-fire every 15–60 minutes — so a still-broken condition was absent from
