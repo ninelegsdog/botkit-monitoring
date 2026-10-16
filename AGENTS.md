@@ -4,44 +4,51 @@ Rules for coding agents working in this repository. Read before changing code.
 
 ## What this project is
 
-botkit-monitoring: a production Telegram bot. It runs in production on webhook
-transport, so a change here is a change to something live.
+botkit-monitoring: the observability stack for the nine BotKit bots — Prometheus,
+Alertmanager, Grafana, Loki, promtail, Tempo, the OpenTelemetry Collector and a reverse
+proxy. It is a compose-only stack of vendor images. Nothing here is built, and nothing
+here is a Telegram bot.
+
+What does run here is `ops/`: the shell and Python that execute on the host — the e2e
+smoke checks, the backup and restore verification, the TLS and drift checks, the rollout
+tooling. A monitoring stack whose own checks rot is silent: a Prometheus rule that fails
+to parse is an alert that never fires, and a drift check that stops running is an outage
+that reports itself as healthy.
 
 ## Hard rules
 
-These are enforced in CI (ci.yml, e2e-smoke.yml, secret-audit.yml). Do not work around them.
+These are enforced in CI (`ci.yml`, `e2e-smoke.yml`, `secret-audit.yml`). Do not work around them.
 
 1. **Never commit secrets.** Use `.env`; keep `.env.example` free of real values.
    gitleaks scans the history, and a leaked token is an incident, not a revert.
-2. **Never leave a test that needs the network unmarked.** A test that requires
-   Telegram or an outbound connection is marked `req` and stays skipped in CI. An
-   unmarked network test is a flaky red on someone else's runner.
-3. **Never leave a floating promise.** A missing `await` on an aiogram call makes
-   a test pass while asserting nothing.
-4. **Never sleep.** No `time.sleep` in a test. Wait on a real condition, so the
-   test retries instead of guessing.
-5. **Never weaken a gate to make a build green.** `uv lock --check`, gitleaks,
-   Trivy and `pre-commit` are load-bearing. Fix the code they are complaining about.
-6. **Never let an unauthenticated event reach the state machine.** The webhook
-   secret check is in `src/delivery/webhook_api.py` and is security-critical.
-7. **Never pin a dependency by hand in `pyproject.toml` alone.** `uv.lock` is the
-   resolved set and CI fails when the two part ways.
-8. **Never commit an evidence or run artifact.** `.env`, `*.session` and coverage
-   output are output, not source.
+2. **Never leave a test that needs the network unmarked.** A test that reaches out to a
+   host is marked `req` and stays skipped in CI. An unmarked network test is a flaky red
+   on someone else's runner.
+3. **Never sleep.** No `time.sleep` in a test. Wait on a real condition, so the test
+   retries instead of guessing.
+4. **Never weaken a gate to make a build green.** gitleaks, `promtool check`,
+   `docker compose config`, `shellcheck` and the `ops/e2e` suite are load-bearing. Fix
+   the thing they are complaining about.
+5. **Never commit a rendered or evidence artifact.** `.env`, `*.session`, coverage
+   output and log files are output, not source.
 
 ## Before you finish
 
-Run and show the output of:
+Run and show the output of the same commands `ci.yml` runs:
 
 ```bash
-uv run --frozen pytest -q
-pre-commit run --all-files
+ruff check --output-format=concise .
+(cd ops/e2e && PYTHONPATH=. python -m pytest -q)
 python3 scripts/check-repo-contract.py . scripts/repo-contract.json
 ```
 
+CI runs more than these where the change touches them: `shellcheck` and `bash -n` over
+`ops/**/*.sh`, `promtool check config`/`check rules`/`check metrics`, `docker compose
+config`, the Grafana dashboard JSON parse and `yamllint`. Run the ones your diff can
+affect.
+
 Do not report a task as done on the basis of a green build alone. Confirm the
-observable behaviour: the test ran, and it failed when the thing it guards was
-broken.
+observable behaviour: the check ran, and it failed when the thing it guards was broken.
 
 **Check the exit code, not a line of output.** Grepping for the string you expect
 is a claim that you looked, not a check: it passes while the build is green and
@@ -49,25 +56,28 @@ stays silent when the build is red.
 
 ## Tests must be able to fail
 
-Every new test gets a negative test: break the thing it guards and confirm it goes
-red. A test that has never failed is unverified. The suite runs offline by default,
-so this must be demonstrable without a Telegram account.
+Every new test gets a negative test: break the thing it guards and confirm it goes red.
+A test that has never failed is unverified. The suite runs offline by default, so this
+must be demonstrable without reaching a live host.
 
 ## Structure
 
-the package — `core/` carries the cross-cutting runtime shared across this family, and
-the domain module carries this bot's logic. Do not add a module that belongs in
-either without saying so in the pull request.
+`ops/` is the host-side tooling and the only Python/shell that runs: `e2e/` (smoke and
+scenarios), `backup/` (restic verification and restore drill), `drift/`, `health/`,
+`rollout/`, `tls/`, `host/`, `redis/` and `lib/` (the shared `fleet.sh`). The component
+directories — `prometheus/`, `alertmanager/`, `grafana/`, `loki/`, `tempo/`, `otelcol/`,
+`promtail/`, `reverse-proxy/` — are configuration for vendor images. Do not add an
+application module: there is no application here.
 
 ## Style
 
-- Python , aiogram 3, SQLAlchemy 2 async.
+- Python 3.10+, no web framework.
 - Imports ordered: stdlib, then third-party, then local.
 - Type hints on public functions.
 - Line length ≤120. PEP 8, `ruff check .`.
+- Shell: `set -euo pipefail`, quoted expansions, clean under `shellcheck --severity=warning`.
 - Conventional Commits: `feat`, `fix`, `docs`, `test`, `chore`, `security`, `refactor`.
-- One concern per commit. A commit that fixes a bug and reformats a file is two
-  commits.
+- One concern per commit. A commit that fixes a bug and reformats a file is two commits.
 
 ## Parallel work
 

@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Line endings are pinned to LF by `.gitattributes`, so a CRLF contributor no
   longer turns every touched line into a diff.
+- `AGENTS.md` and the pull-request template describe this repository instead of a
+  bot. They had been copied from the family's `telegram-bot` template: the project
+  called itself "a production Telegram bot", the finish commands were `uv run
+  --frozen pytest` and `pre-commit run --all-files` — neither runnable here, since
+  this repository has no lockfile and no pre-commit config — and the rules pointed
+  at `src/delivery/webhook_api.py` and aiogram. The finish commands are now the
+  three `ci.yml` actually runs (`ruff`, the `ops/e2e` suite, the repo contract),
+  and the rules name the gates that exist here.
 
 ## [] — 2026-10-13
 
