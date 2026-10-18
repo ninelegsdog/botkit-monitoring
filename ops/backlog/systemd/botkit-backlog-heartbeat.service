@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch the BOTKIT_BACKLOG replica heartbeat and push its state to Uptime Kuma
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/botkit-backlog-heartbeat-watch
+Nice=10
