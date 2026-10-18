@@ -1,0 +1,22 @@
+name: botkit-backlog
+services:
+  minio:
+    image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
+    container_name: botkit-backlog-minio
+    user: "1000:1000"
+    entrypoint: /opt/bitnami/minio/bin/minio
+    command: server /data --console-address ":9001"
+    env_file: /home/algtro/.config/botkit-backlog/minio.env
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - /mnt/storage/BOTKIT_BACKLOG/minio-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
