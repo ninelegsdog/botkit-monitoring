@@ -14,8 +14,8 @@ set -uo pipefail
 HB=${HB:-/srv/botkit-backup/heartbeat/botkit-backlog.json}
 URL_FILE=${URL_FILE:-/root/.botkit-backlog/kuma-push.url}
 LOG=${LOG:-/var/log/botkit-backlog-heartbeat.log}
-# Порог молчания. Репликация идёт каждый час; три часа — это два пропущенных
-# прогона, то есть сбой, а не случайный пропуск.
+# Порог молчания. Репликация идёт каждый час; три часа — пропущено три прогона
+# подряд, то есть сбой, а не случайный пропуск.
 MAXAGE=${MAXAGE:-10800}
 TIMEOUT=10
 
