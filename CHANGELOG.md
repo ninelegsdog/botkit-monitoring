@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The BOTKIT_BACKLOG replica reports its own state, in both directions.
+  `ops/backlog/replicate.sh` finishes every run with a `heartbeat.json` (age,
+  `ok`, mount/device verdicts, snapshot counters, bucket size) and pushes a copy
+  to the monitor over sftp - and before that it refuses to replicate at all when
+  the NTFS disk is not mounted or the container sees a different device than the
+  host path, both of which fail invisibly (`nofail` lets boot continue, so MinIO
+  then serves an empty store out of the root filesystem). The consumer lives on
+  the monitor: `ops/backlog/heartbeat-watch.sh` turns the file into an Uptime Kuma
+  push every five minutes - `up` when fresh, `down` when stale, failed or never
+  reported - and will not push to anything but the loopback Kuma, because the
+  push URL is the credential that decides whether an alarm is real. The stack
+  itself now starts from a user unit (`RequiresMountsFor`, bounded wait, 15-minute
+  retry, `restart: "no"`), so the container cannot come up before the disk, and
+  `ops/backlog/verify.sh` runs the quarterly acceptance: Object Lock, hardening,
+  device identity, counters against the source, source passwords rejected by the
+  replica, stale locks, heartbeat freshness and the cron entry - exiting 1 for a
+  defect and 2 when it could not verify, which is not a pass.
+
 - The webhook-check runtime bundle is installed from the canon instead of by hand.
   `ops/e2e/install-webhook-check.sh` writes the four `ops/e2e` scripts and
   `ops/lib/fleet.env` into a root-owned directory (`0700`, config `0600`), atomically,

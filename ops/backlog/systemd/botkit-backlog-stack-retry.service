@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry botkit-backlog MinIO if the NTFS disk appeared after boot (user unit)
+# Если диск не успел к старту, стек-юнит падает громко и остаётся упавшим, а
+# сторож на мониторе поднимает тревогу. Этот повтор превращает «лежит, пока
+# человек не заметит» в самопочинку: как только диск появился, стек поднимется.
+# Повторный start для уже активного юнита — no-op.
+RequiresMountsFor=/mnt/storage
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user start botkit-backlog-stack.service

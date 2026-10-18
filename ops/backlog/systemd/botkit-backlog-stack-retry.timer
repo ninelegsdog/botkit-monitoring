@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry botkit-backlog MinIO every 15 minutes if it is not up (user unit)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

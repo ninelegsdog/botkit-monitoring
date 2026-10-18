@@ -1,0 +1,27 @@
+[Unit]
+Description=botkit-backlog MinIO — цель WORM-реплики на predator (user unit)
+Documentation=https://github.com/ninelegsdog/botkit-monitoring/blob/main/ops/backlog/README.md
+# Примонтированный диск — предусловие, а не украшение. В fstab раздел помечен
+# nofail: система стартует и без него, docker-service тоже (у него нет
+# After=local-fs.target). Тогда bind-mount создаёт каталог на КОРНЕВОМ разделе,
+# MinIO поднимает ПУСТОЕ хранилище, и реплика молча пропадает: контейнер
+# здоров, порты слушают, а данные лежат не там.
+RequiresMountsFor=/mnt/storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=HOME=/home/algtro
+# Ожидание — страховка на случай, когда порядок зависимостей не сработал (user-менеджер
+# просыпается раньше system-mount). Лучше подождать диск, чем стартовать на пустом
+# каталоге: старт на пустом каталоге не выглядит поломкой, а ею является.
+ExecStartPre=/usr/bin/bash -c 'for _ in $(seq 1 60); do /usr/bin/mountpoint -q /mnt/storage && exit 0; /bin/sleep 5; done; echo "нет монтирования /mnt/storage" >&2; exit 1'
+ExecStart=/usr/bin/docker compose -f /mnt/storage/BOTKIT_BACKLOG/stack/compose.yml up -d
+ExecStop=/usr/bin/docker compose -f /mnt/storage/BOTKIT_BACKLOG/stack/compose.yml down
+TimeoutStartSec=420
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

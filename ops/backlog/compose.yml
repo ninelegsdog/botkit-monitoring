@@ -19,4 +19,8 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    restart: unless-stopped
+    # Подъём контейнера — не политика docker, а юнит botkit-backlog-stack.service
+    # (user-менеджер, RequiresMountsFor=/mnt/storage). Политика docker стартует
+    # контейнер до монтирования NTFS, и MinIO поднимает ПУСТОЕ хранилище на
+    # корневом разделе — поломка, которая не выглядит поломкой.
+    restart: "no"
