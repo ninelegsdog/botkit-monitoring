@@ -51,6 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contract, and `scripts/check-repo-contract_test.py` proves that checker can
   fail. A gate that has never gone red is an assumption, not a gate.
 - Long-form documentation that already existed but was not linked is now linked from the front page: `docs/adr/0001-offsite-backup-restic-over-git.md`, `docs/adr/0002-rpo-rto-backup-immutability.md`.
+- The live E2E check (`tests/test_e2e_live.py`) runs against **all nine bots**, not
+  the two it hardcoded (bookingbot, support). The list is derived from `bots.yml`,
+  the file the runner reads, so the fleet can no longer drift away from its own
+  test while the file still reads as an e2e check. Completeness is pinned offline
+  by `tests/test_e2e_live_contract.py`: the live test is opt-in (`RUN_TELEGRAM_E2E`),
+  so a parametrisation that shrank again would be skipped and green - the contract
+  gate fails instead, and its negative test reproduces the hardcoded pair.
 
 ### Fixed
 
