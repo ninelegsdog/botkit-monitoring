@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import getpass
 import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from telethon import TelegramClient
@@ -80,6 +81,79 @@ def _proxy_tuple(spec: str) -> tuple[str, str, int] | None:
 # settle delay ends and the inter-step gap is decided by SETTLE_S, not by a race.
 SETTLE_S = 2.5
 POLL_S = 0.4
+
+# How many polls in a row must show the same new text before the wait believes
+# it. A handler may edit the message more than once (a placeholder first, the
+# answer second); reporting the placeholder would be a false failure.
+EDIT_SETTLE_POLLS = 2
+
+# What a step produced. These are observations, not verdicts: the client says
+# what happened, the runner decides what it means. The old `_wait_edit` did
+# both at once - it searched the message for the expected substring - which is
+# exactly why a press step could not fail on content: the condition of the
+# check was the condition of the search.
+KIND_REPLY = "reply"
+KIND_EDIT = "edit"
+KIND_TOAST = "toast"
+KIND_NO_EDIT = "no_edit"
+KIND_NO_REPLY = "no_reply"
+KIND_NO_BUTTON = "no_button"
+
+# The facts for the states that have no text to show. They are written as
+# <...> so they cannot be read as something the bot said, and they are never an
+# empty string: "the bot said nothing" and "we did not look" must not look the
+# same in a verdict.
+NO_EDIT_FACT = "<редактирования не было>"
+NO_REPLY_FACT = "<ответа не было>"
+NO_BUTTON_FACT = "<кнопка не найдена>"
+
+
+@dataclass
+class StepResult:
+    """One step's observation: what the bot actually did, before any judging."""
+
+    kind: str
+    actual: str
+
+
+@dataclass
+class EditOutcome:
+    """The pressed message before and after the press.
+
+    The comparison with the scenario's `expect` is the runner's job, as it is
+    for send steps: the client reports the difference, it does not grade it.
+    """
+
+    before: str
+    after: str
+    edited: bool
+
+
+class StepError(Exception):
+    """A step blew up before it could produce an observation.
+
+    The step number travels with the error: a runner error that does not say
+    which step it happened in sends the responder to the wrong place.
+    """
+
+    def __init__(self, number: int, expect: str, cause: BaseException) -> None:
+        super().__init__(f"step {number} failed: {cause}")
+        self.number = number
+        self.expect = expect
+        self.cause = cause
+
+
+def _toast_text(answer: Any) -> str:
+    """The text of a toast answer to a callback, if the bot sent one.
+
+    Telegram delivers a bot's answer to an inline-button press as a
+    `BotCallbackAnswer`; `message` holds the toast text and is empty when the
+    bot answered without one. A bot that answers with a toast instead of
+    editing the message is a different failure from a bot that said nothing,
+    so the toast is read rather than guessed at.
+    """
+    text = getattr(answer, "message", None) or ""
+    return str(text)
 
 
 class TelegramTester:
@@ -236,42 +310,69 @@ class TelegramTester:
             raise RuntimeError(msg)
         return self._usernames[bot]
 
-    async def run_scenario(self, username: str, steps: list[Any], timeout: int) -> list[str]:
-        out: list[str] = []
+    async def run_scenario(self, username: str, steps: list[Any], timeout: int) -> list[StepResult]:
+        """Run the steps and report what each of them produced.
+
+        Every step yields an observation, even a failed one: the runner compares
+        the observations with the scenario's expectations and writes the verdict.
+        The client never grades an answer - that is what makes a press step able
+        to fail on content.
+        """
+        out: list[StepResult] = []
         for i, st in enumerate(steps):
-            if getattr(st, "press", ""):
-                # A press step does not send anything, so it does not consume a
-                # fresh-message id: it taps a button that is already on screen.
-                out.append(await self._press_and_wait(username, st, timeout))
-            else:
-                top = await self.client.get_messages(username, limit=1)
-                seen = top[0].id if top else 0
-                await self.client.send_message(username, st.send)
-                reply, _ = await self._wait_reply(username, timeout, seen)
-                out.append(reply)
+            try:
+                if getattr(st, "press", ""):
+                    # A press step does not send anything, so it does not consume a
+                    # fresh-message id: it taps a button that is already on screen.
+                    result = await self._press_and_wait(username, st, timeout)
+                else:
+                    top = await self.client.get_messages(username, limit=1)
+                    seen = top[0].id if top else 0
+                    await self.client.send_message(username, st.send)
+                    result = await self._wait_reply(username, timeout, seen)
+            except Exception as exc:
+                raise StepError(i + 1, getattr(st, "expect", ""), exc) from exc
+            out.append(result)
+            if result.kind in (KIND_NO_REPLY, KIND_NO_BUTTON):
+                # The bot said nothing at all: the next step has nothing to react
+                # to, and every further step would only spend another timeout to
+                # learn the same thing.
+                break
             if i < len(steps) - 1:
                 await asyncio.sleep(SETTLE_S)
         return out
 
-    async def _press_and_wait(self, username: str, step: Any, timeout: int) -> str:
-        """Press an inline button by callback_data and wait for the edited reply.
+    async def _press_and_wait(self, username: str, step: Any, timeout: int) -> StepResult:
+        """Press an inline button by callback_data and observe what happened.
 
         The allowlisted handlers answer with `callback.message.edit_text(...)`,
         which rewrites the SAME message id. `_wait_reply` only looks for ids
         newer than the last one it saw, so it would time out on an edit. This
-        waits for the target message's `edit_date` to move instead.
+        waits for the target message's text to change instead.
+
+        What comes back is an observation, not a verdict: the text the message
+        ended up with, the toast the bot answered with, or the fact that
+        nothing happened. Comparing that with the scenario's `expect` is the
+        runner's job - a press step that grades itself cannot fail.
         """
         msg = await self._find_button_message(username, step.press)
         if msg is None:
-            raise RuntimeError(
-                f"no visible inline button with callback_data={step.press!r} in recent {username} messages"
-            )
+            return StepResult(kind=KIND_NO_BUTTON, actual=NO_BUTTON_FACT)
         peer = await self.client.get_input_entity(username)
-        before = msg.edit_date
-        await self.client(
+        before_text = getattr(msg, "text", "") or ""
+        answer = await self.client(
             GetBotCallbackAnswerRequest(peer=peer, msg_id=msg.id, data=step.press.encode())
         )
-        return await self._wait_edit(username, msg.id, before, timeout, step.expect)
+        toast = _toast_text(answer)
+        outcome = await self._wait_edit(username, msg.id, before_text, timeout)
+        if outcome.edited:
+            return StepResult(kind=KIND_EDIT, actual=outcome.after)
+        if toast:
+            # The bot answered the press with a toast instead of editing the
+            # message. That is a different failure from silence, and the toast
+            # is the only fact we have about what the bot wanted to say.
+            return StepResult(kind=KIND_TOAST, actual=toast)
+        return StepResult(kind=KIND_NO_EDIT, actual=NO_EDIT_FACT)
 
     async def _find_button_message(self, username: str, callback_data: str) -> Any:
         for m in await self.client.get_messages(username, limit=5):
@@ -285,22 +386,49 @@ class TelegramTester:
         return None
 
     async def _wait_edit(
-        self, username: str, message_id: int, before: Any, timeout: int, expect: str
-    ) -> str:
+        self, username: str, message_id: int, before_text: str, timeout: int
+    ) -> EditOutcome:
+        """Wait for the message's text to change and report what it became.
+
+        The wait looks for a CHANGE OF TEXT. It does not look for the expected
+        substring: that was the defect - the condition of the check was the
+        condition of the search, so a press step could not fail on content, and
+        a bot that edited the message to something else looked exactly like a
+        bot that said nothing. It does not guess either: the old message offered
+        "a toast, or the button was not tapped" as if it were a fact, and the
+        three states that are now told apart are the three ways it can really go.
+
+        The new text has to settle before it is reported: a handler may edit the
+        message twice (a placeholder first, the answer second), and reporting
+        the placeholder would be a false failure.
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
+        last = ""
+        repeats = 0
         while loop.time() < deadline:
             m = await self.client.get_messages(username, ids=message_id)
-            if m and m.edit_date and m.edit_date != before and m.text and expect in m.text:
-                return m.text
+            if isinstance(m, (list, tuple)):
+                m = m[0] if m else None
+            text = (getattr(m, "text", "") or "") if m else ""
+            if text and text != before_text:
+                if text == last:
+                    repeats += 1
+                    if repeats >= EDIT_SETTLE_POLLS:
+                        break
+                else:
+                    last = text
+                    repeats = 1
             await asyncio.sleep(POLL_S)
-        msg = (
-            f"no edited reply matching {expect!r} from {username} after pressing the button "
-            "(the handler may have answered with only a toast, or the button was not tapped)"
-        )
-        raise TimeoutError(msg)
+        return EditOutcome(before=before_text, after=last, edited=bool(last))
 
-    async def _wait_reply(self, username: str, timeout: int, after_id: int) -> tuple[str, int]:
+    async def _wait_reply(self, username: str, timeout: int, after_id: int) -> StepResult:
+        """Wait for a fresh message from the bot.
+
+        "No answer" is an observation, not an exception: the verdict has to be
+        able to name the step that went quiet, and a bare TimeoutError says
+        only that the bot was silent somewhere.
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while loop.time() < deadline:
@@ -308,7 +436,6 @@ class TelegramTester:
                 if m.id <= after_id:
                     continue
                 if not m.out and m.text:
-                    return m.text, m.id
+                    return StepResult(kind=KIND_REPLY, actual=m.text)
             await asyncio.sleep(POLL_S)
-        msg = f"no fresh reply from {username}"
-        raise TimeoutError(msg)
+        return StepResult(kind=KIND_NO_REPLY, actual=NO_REPLY_FACT)

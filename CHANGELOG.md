@@ -61,6 +61,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A press step in the live E2E could not fail on content, and the verdict of a
+  failed run could not be read without a database and the bot's source. The wait
+  in `_wait_edit` searched the message for the expected substring while waiting
+  for it, so the condition of the check was the condition of the search: a bot
+  that edited its message to the wrong text looked exactly like a bot that said
+  nothing, and the wait only ended when the expected text happened to appear.
+  The client now observes (`reply` / `edit` / `toast` / `no_edit` / `no_reply` /
+  `no_button`) and the runner grades - the comparison with the scenario's
+  expectation happens outside the wait, as it always did for send steps. The
+  three ways a press step can go wrong are told apart: no edit at all
+  (`EditMissing`, fact `<редактирования не было>`), a toast instead of an edit
+  (`ToastInsteadOfEdit`, with the toast text), and an edit with a different text
+  (`UnexpectedReply`, with both texts). The verdict names the bot, the reason,
+  the step, the expectation and the fact, and it is printed for every step -
+  pass and fail - because a verdict that appears only on failure cannot prove
+  that the passing steps were checked. The reasons are a closed set, and the
+  alert carries the failing step rather than the first one.
+
+- The live E2E check is graded by the same judge as the nightly runner, so the
+  two cannot disagree about the same run.
+
 - The runtime `botkit-webhook-check.service` executes lives outside git and nothing
   updated it. `sync-canon.sh` asserted the *clone* — the one copy that updates itself —
   while the copy systemd actually runs sits in a root-owned `/root/botkit-webhook-check`
