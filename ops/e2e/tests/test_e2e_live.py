@@ -28,6 +28,7 @@ import pytest
 
 from e2e.client import TelegramTester
 from e2e.config import load_bots, load_scenarios, load_settings
+from e2e.run_e2e import judge_scenario
 
 E2E_DIR = Path(__file__).resolve().parents[1]
 
@@ -57,9 +58,11 @@ def test_bot_responds(bot):
     async def go():
         async with TelegramTester(settings) as t:
             t.prime_usernames({bot: username})
-            reps = await t.run_scenario(username, sc.steps, settings.timeout)
-            return all(
-                e in r for e, r in zip([s.expect for s in sc.steps], reps, strict=False)
-            )
+            results = await t.run_scenario(username, sc.steps, settings.timeout)
+            # The client reports what happened; the grade is the runner's job.
+            # Grading here with the runner's own judge keeps the live check
+            # and the nightly runner from disagreeing about the same run.
+            verdicts = judge_scenario(sc, results)
+            return all(v.ok for v in verdicts)
 
     assert asyncio.run(go())
