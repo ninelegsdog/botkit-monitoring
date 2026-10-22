@@ -7,6 +7,7 @@ from typing import ClassVar
 import pytest
 
 from e2e import run_e2e
+from e2e.client import KIND_REPLY, StepResult
 from e2e.config import Settings
 
 FAKE_BOT = type("S", (), {"steps": [type("St", (), {"send": "/start", "expect": "Привет"})()]})
@@ -52,7 +53,7 @@ def test_runner_status(tmp_path, monkeypatch):
             return None
 
         async def run_scenario(self, u, steps, t):
-            return [s.expect for s in steps]
+            return [StepResult(kind=KIND_REPLY, actual=s.expect) for s in steps]
 
         def prime_usernames(self, mapping):
             self.prime = mapping
@@ -97,7 +98,10 @@ def test_runner_fail_writes_fail(tmp_path, monkeypatch):
     assert problems == 1
     assert (settings.status_dir / "botkit-x.fail").exists()
     assert not (settings.status_dir / "botkit-x.ok").exists()
-    assert sent == ["no reply"]
+    # Step number and expected are unknown when the error happens before/during
+    # step execution in a form that isn't a StepError; the verdict still
+    # carries bot, reason, step and fact.
+    assert sent == ["BotNotAnswering step=? expected=\"\" actual=\"no reply\""]
 
 
 def test_runner_reads_username_from_bots_file(tmp_path, monkeypatch):
@@ -118,7 +122,7 @@ def test_runner_reads_username_from_bots_file(tmp_path, monkeypatch):
 
         async def run_scenario(self, u, steps, t):
             Fake.seen["username"] = u
-            return [s.expect for s in steps]
+            return [StepResult(kind=KIND_REPLY, actual=s.expect) for s in steps]
 
         def prime_usernames(self, mapping):
             Fake.seen["primed"] = dict(mapping)
@@ -364,7 +368,7 @@ class _RecordingTester:
         return self.prime[bot]
 
     async def run_scenario(self, u, steps, t):
-        return [s.expect for s in steps]
+        return [StepResult(kind=KIND_REPLY, actual=s.expect) for s in steps]
 
 
 def test_run_all_delivers_the_watchdog_heartbeat(tmp_path, monkeypatch):
@@ -465,7 +469,7 @@ class _WrongReply(_RecordingTester):
     """Answers, but with the wrong text - not silence."""
 
     async def run_scenario(self, u, steps, t):
-        return ["something else entirely"] * len(steps)
+        return [StepResult(kind=KIND_REPLY, actual="something else entirely") for _ in steps]
 
 
 def test_mismatch_is_classified_as_an_unexpected_reply(tmp_path, monkeypatch):

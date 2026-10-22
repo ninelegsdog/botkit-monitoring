@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from e2e.client import POLL_S, SETTLE_S, TelegramTester
+from e2e.client import KIND_REPLY, POLL_S, SETTLE_S, StepResult, TelegramTester
 
 # The slowest ThrottlingMiddleware across the nine bots. Keep in sync with
 # src/core/throttling.py in each bot repository.
@@ -51,8 +51,8 @@ class _FakeTester(TelegramTester):
         self.client = _Client()
         self._replies = replies
 
-    async def _wait_reply(self, username: str, timeout: int, after_id: int) -> tuple[str, int]:
-        return self._replies.pop(0), after_id + 1
+    async def _wait_reply(self, username: str, timeout: int, after_id: int) -> StepResult:
+        return StepResult(kind=KIND_REPLY, actual=self._replies.pop(0))
 
 
 @pytest.fixture
@@ -70,9 +70,9 @@ def test_settles_between_steps_but_not_after_the_last(slept: list[float]) -> Non
     steps = [SimpleNamespace(send="/start"), SimpleNamespace(send="/start")]
     tester = _FakeTester(["first reply", "second reply"])
 
-    replies = asyncio.run(tester.run_scenario("bot", steps, timeout=30))
+    results = asyncio.run(tester.run_scenario("bot", steps, timeout=30))
 
-    assert replies == ["first reply", "second reply"]
+    assert [r.actual for r in results] == ["first reply", "second reply"]
     assert tester.client.sent == ["/start", "/start"]
     # Exactly one settle: between the two steps, none after the final reply.
     assert slept == [SETTLE_S]
@@ -81,5 +81,6 @@ def test_settles_between_steps_but_not_after_the_last(slept: list[float]) -> Non
 def test_single_step_scenario_never_settles(slept: list[float]) -> None:
     tester = _FakeTester(["only reply"])
 
-    assert asyncio.run(tester.run_scenario("bot", [SimpleNamespace(send="/start")], timeout=30)) == ["only reply"]
+    results = asyncio.run(tester.run_scenario("bot", [SimpleNamespace(send="/start")], timeout=30))
+    assert [r.actual for r in results] == ["only reply"]
     assert slept == []

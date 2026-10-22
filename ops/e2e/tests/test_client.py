@@ -1,9 +1,20 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 import e2e.client as client_module
-from e2e.client import TelegramTester
+from e2e.client import (
+    KIND_EDIT,
+    KIND_NO_BUTTON,
+    KIND_NO_EDIT,
+    KIND_REPLY,
+    KIND_TOAST,
+    NO_BUTTON_FACT,
+    NO_EDIT_FACT,
+    StepResult,
+    TelegramTester,
+)
 from e2e.config import Settings
 
 
@@ -397,3 +408,143 @@ def test_disconnect_closes_client():
     t = _tester_with(client)
     asyncio.run(t.disconnect())
     assert client.disconnected
+
+
+class _PressClient:
+    """Minimal client for press/edit tests."""
+
+    def __init__(self, messages, answer_message: str = "", edit_sequence=None):
+        self._messages = list(messages)
+        self._answer_message = answer_message
+        self.edit_sequence = list(edit_sequence or [])
+        self._edit_index = 0
+        self.callback_requests = []
+        self.input_entity = object()
+        self._by_id = {getattr(m, "id", None): m for m in self._messages if getattr(m, "id", None) is not None}
+
+    async def get_messages(self, username, limit=1, ids=None):
+        if ids is not None:
+            mid = ids[0] if isinstance(ids, (list, tuple)) else ids
+            if self.edit_sequence and self._edit_index < len(self.edit_sequence):
+                m = self.edit_sequence[self._edit_index]
+                self._edit_index += 1
+                if m.id is not None:
+                    self._by_id[m.id] = m
+            if mid in self._by_id:
+                return [self._by_id[mid]]
+            for m in self._messages:
+                if getattr(m, "id", None) == mid:
+                    return [m]
+            return []
+        return list(self._messages[:limit])
+
+    async def get_input_entity(self, username):
+        return self.input_entity
+
+    async def __call__(self, request):
+        self.callback_requests.append(request)
+        return SimpleNamespace(message=self._answer_message)
+
+
+def _msg(mid: int, text: str):
+    m = SimpleNamespace(id=mid, text=text, out=False)
+    m.edit_date = None
+    m.reply_markup = None
+    return m
+
+
+class _MarkupMsg:
+    def __init__(self, mid: int, text: str, buttons):
+        self.id = mid
+        self.text = text
+        self.out = False
+        row = SimpleNamespace(buttons=buttons)
+        self.reply_markup = SimpleNamespace(rows=[row])
+
+
+class _Btn:
+    def __init__(self, data: str):
+        self.callback_data = data
+
+
+def test_press_edit_waits_for_text_change_not_substring(monkeypatch):
+    """The original defect: _wait_edit searched for expect inside the text,
+    so any edit containing expect would pass and a change to different text
+    could never be detected by that filter. The new behaviour watches for
+    a text change and reports it; comparison is done outside."""
+    button_msg = _MarkupMsg(10, "Выберите действие:", [_Btn("book:my")])
+    after = _msg(10, "📄 #24 — Договор аренды на 2026 год")
+    client = _PressClient([button_msg], edit_sequence=[_msg(10, "Выберите действие:"), after, after])
+    t = _tester_with(client)
+    result = asyncio.run(t._press_and_wait("bot", SimpleNamespace(press="book:my", expect="Нет активных записей"), 5))
+    assert result.kind == KIND_EDIT
+    assert result.actual == after.text
+
+
+def test_press_edit_changed_to_other_text_is_observed_not_swallowed(monkeypatch):
+    button_msg = _MarkupMsg(10, "Выберите действие:", [_Btn("book:my")])
+    changed = _msg(10, "Что-то совсем другое")
+    client = _PressClient([button_msg], edit_sequence=[_msg(10, "Выберите действие:"), changed, changed])
+    t = _tester_with(client)
+    result = asyncio.run(t._press_and_wait("bot", SimpleNamespace(press="book:my", expect="Нет активных записей"), 5))
+    assert result.kind == KIND_EDIT
+    assert result.actual == "Что-то совсем другое"
+
+
+def test_press_no_edit_returns_no_edit_fact():
+    button_msg = _MarkupMsg(10, "Выберите действие:", [_Btn("book:my")])
+    # Text never changes
+    client = _PressClient([button_msg], edit_sequence=[_msg(10, "Выберите действие:"), _msg(10, "Выберите действие:")])
+    t = _tester_with(client)
+    result = asyncio.run(t._press_and_wait("bot", SimpleNamespace(press="book:my", expect="Нет активных записей"), 1))
+    assert result.kind == KIND_NO_EDIT
+    assert result.actual == NO_EDIT_FACT
+
+
+def test_press_toast_instead_of_edit():
+    button_msg = _MarkupMsg(10, "Выберите действие:", [_Btn("book:my")])
+    client = _PressClient(
+        [button_msg], answer_message="Слишком много запросов", edit_sequence=[_msg(10, "Выберите действие:")]
+    )
+    t = _tester_with(client)
+    result = asyncio.run(t._press_and_wait("bot", SimpleNamespace(press="book:my", expect="Нет активных записей"), 1))
+    assert result.kind == KIND_TOAST
+    assert result.actual == "Слишком много запросов"
+
+
+def test_press_button_not_found():
+    client = _PressClient([_msg(1, "hello")])
+    t = _tester_with(client)
+    result = asyncio.run(t._press_and_wait("bot", SimpleNamespace(press="book:my", expect="x"), 1))
+    assert result.kind == KIND_NO_BUTTON
+    assert result.actual == NO_BUTTON_FACT
+
+
+def test_wait_edit_does_not_require_expect_substring(monkeypatch):
+    changed = _msg(10, "Совсем другой текст без ожидаемого")
+    client = _PressClient([_msg(10, "Старый текст")], edit_sequence=[_msg(10, "Старый текст"), changed, changed])
+    t2 = _tester_with(client)
+    outcome = asyncio.run(t2._wait_edit("bot", 10, "Старый текст", 5))
+    assert outcome.edited is True
+    assert outcome.after == "Совсем другой текст без ожидаемого"
+
+
+def test_send_step_still_uses_wait_reply():
+    class RClient:
+        def __init__(self):
+            self.sent = []
+
+        async def get_messages(self, username, limit=1):
+            if limit == 1:
+                return [SimpleNamespace(id=5)]
+            # return replies
+            return [SimpleNamespace(id=6, out=False, text="Привет!")]
+
+        async def send_message(self, username, text):
+            self.sent.append(text)
+
+    t = _tester_with(RClient())
+    results = asyncio.run(t.run_scenario("bot", [SimpleNamespace(send="/start", expect="Привет")], 5))
+    assert isinstance(results[0], StepResult)
+    assert results[0].kind == KIND_REPLY
+    assert results[0].actual == "Привет!"
