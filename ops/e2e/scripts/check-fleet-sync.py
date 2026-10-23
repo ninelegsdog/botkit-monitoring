@@ -135,35 +135,24 @@ def main(argv: list[str] | None = None) -> int:
         canonical = canonical.resolve()
     else:
         canonical = find_canonical()
+        if canonical is None:
+            print("канон недоступен: cases/fleet.json фермы не найден "
+                  "(задайте BOTKIT_FARM_FLEET_JSON или BOTKIT_FARM_ROOT)", file=sys.stderr)
+            return EXIT_CANNOT_VERIFY
 
-    if canonical is None:
-        print("канон недоступен: cases/fleet.json фермы не найден "
-              "(задайте BOTKIT_FARM_FLEET_JSON или BOTKIT_FARM_ROOT)", file=sys.stderr)
-        return EXIT_CANNOT_VERIFY
-
-    # Проверка запинненного SHA: канон не должен расходиться с ожиданием.
+    # Проверка запинненного SHA и чтение обоих реестров — в одном блоке,
+    # чтобы число точек возврата не разрасталось (ruff PLR0911).
     try:
         actual_sha = sha256_file(canonical)
-    except OSError as exc:
-        print(f"канон не читается: {canonical}: {exc}", file=sys.stderr)
-        return EXIT_CANNOT_VERIFY
-
-    if actual_sha != PINNED_FLEET_SHA256:
-        print(f"расхождение канона: sha256 {actual_sha} != запиненный {PINNED_FLEET_SHA256}",
-              file=sys.stderr)
-        print(f"  канон: {canonical}", file=sys.stderr)
-        return EXIT_FAIL
-
-    try:
+        if actual_sha != PINNED_FLEET_SHA256:
+            print(f"расхождение канона: sha256 {actual_sha} != запиненный {PINNED_FLEET_SHA256}",
+                  file=sys.stderr)
+            print(f"  канон: {canonical}", file=sys.stderr)
+            return EXIT_FAIL
         fleet_bots = load_fleet_bots(canonical)
+        bots_yml_bots = load_bots_yml(bots_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"канон не читается: {canonical}: {exc}", file=sys.stderr)
-        return EXIT_CANNOT_VERIFY
-
-    try:
-        bots_yml_bots = load_bots_yml(bots_path)
-    except OSError as exc:
-        print(f"bots.yml не читается: {bots_path}: {exc}", file=sys.stderr)
         return EXIT_CANNOT_VERIFY
 
     fleet_set = set(fleet_bots)
