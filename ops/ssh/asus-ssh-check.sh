@@ -115,7 +115,6 @@ else
   if [ "${cur_size}" -gt "${old_offset}" ]; then
     tmp=$(mktemp)
     tail -c +$((old_offset + 1)) "${UFW_LOG}" > "${tmp}" 2>/dev/null || true
-    count=$(grep -c "UFW LIMIT BLOCK" "${tmp}" 2>/dev/null || echo 0)
     # фильтр по DPT=22
     limit_ssh=$(grep "UFW LIMIT BLOCK" "${tmp}" 2>/dev/null | grep -c "DPT=22" || echo 0)
     if [ "${limit_ssh}" -gt 0 ]; then
