@@ -12,5 +12,5 @@ def test_script_exists_and_executable():
 
 
 def test_script_syntax():
-    result = subprocess.run(["bash", "-n", SCRIPT], capture_output=True, text=True)
+    result = subprocess.run(["bash", "-n", SCRIPT], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
