@@ -107,9 +107,17 @@ run_stream() {
   collect_paths "$stream"
   [ "${#PATHS[@]}" -gt 0 ] || die "поток $stream: источники не найдены"
 
+  # Preflight: снять stale-локи, оставшиеся от убитого запуска (обрыв SSH и т.п.).
+  # restic unlock удаляет только локи старше 30 мин без refresh — живой бэкап не трогает.
+  if RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" unlock >/dev/null 2>&1; then
+    log "поток $stream: preflight unlock выполнен"
+  else
+    log "поток $stream: preflight unlock не удался (продолжаем; backup может упасть)"
+  fi
+
   log "поток $stream: источников ${#PATHS[@]}, репозиторий $repo"
   for attempt in $(seq 1 $RETRIES); do
-    if RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" backup \
+    if RESTIC_PASSWORD_FILE="$pw" restic -r "$repo" backup --retry-lock 5m \
          --host prod --tag "$stream" --exclude-caches --exclude '*.tmp' "${PATHS[@]}"; then
       rc=0; break
     fi
