@@ -63,8 +63,19 @@ jobs:
       - name: ruff
         # Pinned so a new lint rule cannot turn the main branch red on an unrelated push.
         run: ruff check --output-format=concise .
+      - name: checkout botkit-farm (канон cases/fleet.json)
+        # Гейт сверки реестра флота читает канон из фермы. Второй экземпляр
+        # fleet.json в мониторинге запрещён, поэтому ферма подтягивается здесь,
+        # по запиненному коммиту (см. PINNED_FLEET_SHA256 в check-fleet-sync.py).
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v5.0.0
+        with:
+          repository: ninelegsdog/botkit-farm
+          ref: b4a5bab27c1d9700a0296b9527360ac9dee4efbe
+          path: botkit-farm
       - name: pytest
         working-directory: ops/e2e
+        env:
+          BOTKIT_FARM_ROOT: ${{ github.workspace }}/botkit-farm
         run: |
           PYTHONPATH=. python -m pytest -q
       - name: shellcheck

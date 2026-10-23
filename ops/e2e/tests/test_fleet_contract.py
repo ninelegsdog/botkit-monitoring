@@ -20,8 +20,12 @@ scan finds nothing to look at.
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import re
+import subprocess
+import sys
+import tempfile
 
 import pytest
 
@@ -259,3 +263,39 @@ def test_deploy_rollout_flags_are_position_independent():
     assert 'if [ -z "$bot" ]' in text and 'elif [ -z "$IMG" ]' in text, (
         "positional arguments are not parsed by shape - a flag can still land in a slot"
     )
+
+
+
+# ── Сверка реестра флота: farm cases/fleet.json ↔ ops/e2e/bots.yml ──────────
+
+FLEET_SCRIPT = REPO / "ops" / "e2e" / "scripts" / "check-fleet-sync.py"
+
+
+def _run(env=None, args=None, bots_path=None):
+    cmd = [sys.executable, str(FLEET_SCRIPT)]
+    if bots_path is not None:
+        cmd.append(str(bots_path))
+    if args:
+        cmd.extend(args)
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
+    return subprocess.run(cmd, capture_output=True, text=True, env=run_env, check=False)
+
+
+def test_fleet_sync_ok():
+    result = _run()
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_fleet_sync_divergence_bots_yml():
+    with tempfile.TemporaryDirectory() as td:
+        bad = pathlib.Path(td) / "bots.yml"
+        bad.write_text((REPO / "ops" / "e2e" / "bots.yml").read_text().replace("botkit-support:", "# botkit-support:"))
+        result = _run(bots_path=bad)
+        assert result.returncode == 1, result.stderr + result.stdout
+
+
+def test_fleet_sync_canonical_unavailable():
+    result = _run(env={"BOTKIT_FARM_FLEET_JSON": "/tmp/scratchpad/does-not-exist.json"})
+    assert result.returncode == 2, result.stderr + result.stdout
