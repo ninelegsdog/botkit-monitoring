@@ -116,7 +116,8 @@ else
     tmp=$(mktemp)
     tail -c +$((old_offset + 1)) "${UFW_LOG}" > "${tmp}" 2>/dev/null || true
     # фильтр по DPT=22
-    limit_ssh=$(grep "UFW LIMIT BLOCK" "${tmp}" 2>/dev/null | grep -c "DPT=22" || echo 0)
+    limit_ssh=$(grep "UFW LIMIT BLOCK" "${tmp}" 2>/dev/null | grep -c "DPT=22" 2>/dev/null || true)
+    limit_ssh=${limit_ssh:-0}
     if [ "${limit_ssh}" -gt 0 ]; then
       sample=$(grep "UFW LIMIT BLOCK" "${tmp}" | grep "DPT=22" | tail -3 | sed 's/.*SRC=/SRC=/;s/ .*//' | tr '\n' ' ')
       alert "ufw_limit_block" "[asus-1 SSH] UFW LIMIT BLOCK: ${limit_ssh} новых
