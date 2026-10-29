@@ -58,7 +58,7 @@ docker compose up -d
 ## Ports and exposure
 
 Every port below listens on `127.0.0.1` only. Nothing is exposed outward. On the
-monitor `31.76.11.198`, port 3001 (Uptime Kuma) is likewise loopback-only.
+monitor `<monitor-host>`, port 3001 (Uptime Kuma) is likewise loopback-only.
 
 | Port | Exposure |
 |---|---|
@@ -85,7 +85,7 @@ Four alerts, each with a `for` window, so a scrape blip is not a page:
 
 An external observer, for the case where production is dead and cannot report it.
 Every two minutes `ops/health/heartbeat.sh` sends a GET to a Uptime Kuma push
-endpoint on the monitor `31.76.11.198` (container `uptime-kuma` 2.5.5, image pinned
+endpoint on the monitor `<monitor-host>` (container `uptime-kuma` 2.5.5, image pinned
 by digest, bound to loopback only).
 
 Ping path: production `127.0.0.1:3001` → SSH tunnel `botkit-kuma-tunnel.service`
