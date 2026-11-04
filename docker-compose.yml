@@ -35,6 +35,7 @@ services:
     logging: *default-logging
 
   blackbox-exporter:
+    user: "65534:65534"
     image: prom/blackbox-exporter@sha256:b04a9fef4fa086a02fc7fcd8dcdbc4b7b35cc30cdee860fdc6a19dd8b208d63e
     network_mode: host
     restart: unless-stopped
@@ -126,6 +127,7 @@ services:
     logging: *default-logging
 
   minio:
+    user: "1000:1000"
     image: minio/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3
     network_mode: host
     restart: unless-stopped
@@ -156,7 +158,7 @@ services:
 
   loki:
     image: grafana/loki@sha256:d947e68a84d9e44915dfa08c3bec27e2124efd5ba6c83443eb53578101ec69e3
-    user: "0:0"
+    user: "1000:1000"
     network_mode: host
     restart: unless-stopped
     command:
@@ -178,6 +180,7 @@ services:
     logging: *default-logging
 
   promtail:
+    user: "65534:65534"
     image: grafana/promtail@sha256:b3db8e7b1cba0e8c45ce2ae72ebddfd88ebdcae86383f1680edf0074e9010ff6
     network_mode: host
     restart: unless-stopped
@@ -193,6 +196,7 @@ services:
     logging: *default-logging
 
   node-exporter:
+    user: "65534:65534"
     image: prom/node-exporter@sha256:4032c6d5bfd752342c3e631c2f1de93ba6b86c41db6b167b9a35372c139e7706
     network_mode: host
     restart: unless-stopped
