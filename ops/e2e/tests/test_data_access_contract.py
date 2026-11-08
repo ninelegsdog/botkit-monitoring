@@ -46,7 +46,21 @@ ROLLOUT_SH = REPO / "ops" / "rollout" / "deploy_rollout.sh"
 FLEET_SH = REPO / "ops" / "lib" / "fleet.sh"
 FLEET_ENV = REPO / "ops" / "lib" / "fleet.env"
 
-CHANNEL = "v0.8.2"
+def _channel_from_canon() -> str:
+    """Канал берётся из канона, а не дублируется в тесте.
+
+    Тесты пиннят теги вида <CHANNEL>-<sha7>. Пока значение было скопировано сюда,
+    смена канала в fleet.env (v0.8.2 -> v0.8.5, 08.11) роняла контракт по причине,
+    к которой он отношения не имеет: проверялась копия константы, а не логика.
+    """
+    for line in FLEET_ENV.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r'\s*CHANNEL="([^"]+)"\s*', line)
+        if match:
+            return match.group(1)
+    raise AssertionError(f"CHANNEL не найден в {FLEET_ENV}")
+
+
+CHANNEL = _channel_from_canon()
 BOT = "bookingbot"
 IMAGE_PREFIX = f"ghcr.io/ninelegsdog/botkit-{BOT}:{CHANNEL}-"
 DOCS_PATH = "README.md"
