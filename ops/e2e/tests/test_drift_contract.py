@@ -36,7 +36,21 @@ DRIFT_SH = REPO / "ops" / "drift" / "check_drift.sh"
 FLEET_SH = REPO / "ops" / "lib" / "fleet.sh"
 FLEET_ENV = REPO / "ops" / "lib" / "fleet.env"
 
-CHANNEL = "v0.8.2"
+def _channel_from_canon() -> str:
+    """Канал берётся из канона, а не дублируется в тесте.
+
+    Тесты пиннят теги вида <CHANNEL>-<sha7>. Пока значение было скопировано сюда,
+    смена канала в fleet.env (v0.8.2 -> v0.8.5, 08.11) роняла контракт по причине,
+    к которой он отношения не имеет: проверялась копия константы, а не логика.
+    """
+    for line in FLEET_ENV.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r'\s*CHANNEL="([^"]+)"\s*', line)
+        if match:
+            return match.group(1)
+    raise AssertionError(f"CHANNEL не найден в {FLEET_ENV}")
+
+
+CHANNEL = _channel_from_canon()
 BOT = "bookingbot"
 IMAGE_PREFIX = f"ghcr.io/ninelegsdog/botkit-{BOT}:{CHANNEL}-"
 
@@ -431,7 +445,7 @@ def test_the_container_must_match_the_pinned_tag(sandbox: Sandbox) -> None:
     )
 
     # Same image, different pin: the file and the container now disagree.
-    sandbox.write_pin("v0.8.2-0000000")
+    sandbox.write_pin(f"{CHANNEL}-0000000")
     result = sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
 
     log = sandbox.log_text()
@@ -578,7 +592,7 @@ def test_sha_missing_from_the_clone_is_reported(sandbox: Sandbox) -> None:
     # a disagreement between it and the container is CRITICAL and stops the run - so a test that
     # injects a different image without moving the pin would die on that critical before reaching
     # the branch it is here to observe.
-    sandbox.write_pin("v0.8.2-deadbee")
+    sandbox.write_pin(f"{CHANNEL}-deadbee")
     sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}deadbee")
 
     assert "not in this clone" in sandbox.log_text(), sandbox.log_text()
@@ -591,8 +605,8 @@ def test_unreadable_sha_is_reported(sandbox: Sandbox) -> None:
     # a disagreement between it and the container is CRITICAL and stops the run - so a test that
     # injects a different image without moving the pin would die on that critical before reaching
     # the branch it is here to observe.
-    sandbox.write_pin("v0.8.2-nonsha")
-    sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:v0.8.2-nonsha")
+    sandbox.write_pin(f"{CHANNEL}-nonsha")
+    sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:{CHANNEL}-nonsha")
 
     log = sandbox.log_text()
     assert "cannot read the build sha" in log, log
