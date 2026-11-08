@@ -355,3 +355,36 @@ groups:
         annotations:
           summary: "Метрики запуска бэкапа нет"
           description: "botkit_backup_consistent_failures не поступает от node_exporter более 30 минут — таймер botkit-restic-data.timer не работает либо botkit-restic-backup падает до записи метрики. Согласованные снимки не контролируются."
+
+  # Самонаблюдение стека: пока эти сигналы отсутствовали, «умер Prometheus» и
+  # «умер Alertmanager» не были ничьими алертами, а неудачная доставка уведомлений
+  # выглядела как «алертов нет». Правила и self-scrape job'ы жили только на проде
+  # хотфиксом — перенесены в канон.
+  - name: monitoring-self
+    rules:
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus недоступен"
+          description: "Self-scrape Prometheus (127.0.0.1:9090) не отвечает более 2 минут."
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager недоступен"
+          description: "Alertmanager (127.0.0.1:9093) не отвечает более 2 минут."
+
+      - alert: AlertmanagerNotificationFailures
+        expr: increase(alertmanager_notifications_failed_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alertmanager не доставляет уведомления"
+          description: "За последние 10 минут были неудачные попытки доставки уведомлений."
