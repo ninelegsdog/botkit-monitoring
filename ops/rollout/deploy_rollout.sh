@@ -42,8 +42,12 @@ LOG="/var/log/botkit-rollout.log"
 # per-bot health and metrics URLs below stay literal on purpose - those are the bot's own
 # port from the map above, not a monitoring endpoint.
 AM_URL="$ALERTMANAGER_ALERTS_URL"
-HEALTH_TRIES=6
-HEALTH_WAIT=3
+# 30×5s = 150s. Было 6×3s = 18s: на холодном старте (импорт aiogram + миграции)
+# бот не успевал ответить 200, и health-гейт откатывал здоровый образ. Значение
+# пришло с прода хотфиксом и потерялось бы при синхронизации клона — перенесено
+# в канон.
+HEALTH_TRIES=30
+HEALTH_WAIT=5
 # How long a raised alert stays firing, in seconds. A bare POST has no endsAt, so
 # Alertmanager applies its own resolve_timeout (5m) and the alert vanishes five minutes
 # after a rollout tick that runs every fifteen - a still-failing rollout reads as
