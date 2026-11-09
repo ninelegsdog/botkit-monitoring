@@ -37,6 +37,24 @@ groups:
           summary: "Webhook unreachable for {{ $labels.bot }}"
           description: "Публичный webhook https://ninelegsbots.duckdns.org/webhook/{{ $labels.bot }} не отвечает 3+ минут (nginx/приложение/сеть)"
 
+      - alert: BotCrmOutboxPendingHigh
+        expr: bot_crm_outbox_pending{job="botkit"} > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CRM outbox pending high on {{ $labels.instance }}"
+          description: "bot_crm_outbox_pending = {{ $value }} на {{ $labels.instance }} более 5 минут. Лиды не доставляются в CRM."
+
+      - alert: BotCrmOutboxPendingCritical
+        expr: bot_crm_outbox_pending{job="botkit"} > 500
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRM outbox pending critical on {{ $labels.instance }}"
+          description: "bot_crm_outbox_pending = {{ $value }} на {{ $labels.instance }} более 5 минут. Критическое накопление неотправленных лидов."
+
       - alert: BotErrorSpike
         expr: sum by (instance) (rate(botkit_errors_total{job="botkit"}[5m])) > 0.5
         for: 5m
