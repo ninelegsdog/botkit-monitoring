@@ -241,6 +241,14 @@ for entry in $BOTS; do
     # check that has nothing to report.
     imgsha=$(echo "$img" | sed -n "s#.*:$CHANNEL-\([0-9a-f]\{7\}\).*#\1#p")
     if [ -z "$imgsha" ]; then
+      # A tag from another channel still ends in a build sha. Reading it keeps the
+      # staleness comparison alive for an off-channel bot instead of replacing it with
+      # a less useful message: "not on channel" is already tracked above, and a bot
+      # parked on an old channel is exactly where staleness matters most. Anchored at
+      # the end of the tag so a sha inside a repository name cannot match.
+      imgsha=$(echo "$img" | sed -n "s#.*-\([0-9a-f]\{7\}\)\$#\1#p")
+    fi
+    if [ -z "$imgsha" ]; then
       track+=("cannot read the build sha from the image tag: $img")
     elif [ "$imgsha" != "${origin:0:7}" ]; then
       # A sha mismatch on its own is not staleness. deploy.yml skips documentation and
