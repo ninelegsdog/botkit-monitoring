@@ -106,34 +106,35 @@ def judge_scenario(scenario, results: list[StepResult]) -> list[Verdict]:
     ]
 
 
+def _expectations(step: Any) -> tuple[str, ...]:
+    """Accepted replies for a step, from a Step or from a test double."""
+    explicit = tuple(getattr(step, "expect_any", ()) or ())
+    if explicit:
+        return explicit
+    expect = getattr(step, "expect", "") or ""
+    return (expect,) if expect else ()
+
+
 def _judge_step(number: int, step: Any, result: StepResult) -> Verdict:
+    expectations = _expectations(step)
+    expected = " | ".join(expectations)
     reason = KIND_REASONS.get(result.kind)
     if reason is not None:
         # The bot produced no comparable text: the fact says which of the three
         # ways it happened, and no amount of reading the expectation would help.
-        return Verdict(
-            ok=False, reason=reason, step=number, expected=step.expect, actual=result.actual
-        )
-    if not step.expect:
+        return Verdict(ok=False, reason=reason, step=number, expected=expected, actual=result.actual)
+    if not expectations:
         # An empty expectation is a substring of everything, so the step would be
         # green because nothing was asked of the bot. That is a defect in the
         # scenario, not a pass.
         return Verdict(
-            ok=False,
-            reason=SCENARIO_DEFECT,
-            step=number,
-            expected=step.expect,
-            actual=result.actual,
+            ok=False, reason=SCENARIO_DEFECT, step=number, expected=expected, actual=result.actual
         )
-    if step.expect not in result.actual:
+    if not any(accepted in result.actual for accepted in expectations):
         return Verdict(
-            ok=False,
-            reason=UNEXPECTED_REPLY,
-            step=number,
-            expected=step.expect,
-            actual=result.actual,
+            ok=False, reason=UNEXPECTED_REPLY, step=number, expected=expected, actual=result.actual
         )
-    return Verdict(ok=True, reason=ALL_GOOD, step=number, expected=step.expect, actual=result.actual)
+    return Verdict(ok=True, reason=ALL_GOOD, step=number, expected=expected, actual=result.actual)
 
 
 def _quote(text: str, limit: int = FACT_LIMIT) -> str:

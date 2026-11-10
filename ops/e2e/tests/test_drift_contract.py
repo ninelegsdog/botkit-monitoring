@@ -624,6 +624,25 @@ def test_image_off_the_pinned_channel_is_reported(sandbox: Sandbox) -> None:
     assert "image tag not on channel" in sandbox.log_text(), sandbox.log_text()
 
 
+def test_off_channel_tag_still_has_its_sha_compared(sandbox: Sandbox) -> None:
+    """An off-channel tag is drift, but its build sha must still be read.
+
+    Live case 08-09.11: bookingbot sat on v0.8.2 while the channel was v0.8.5.
+    The old code could not read a sha behind a foreign prefix, logged "cannot read
+    the build sha" and never asked whether the image was stale. A bot parked on an
+    old channel is exactly where that question matters most, so the sha is now read
+    from the end of the tag and the staleness comparison still runs.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={RUNTIME_PATH: "changed\n"})
+    sandbox.write_pin(f"v0.7.0-{image_sha[:7]}")
+    sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:v0.7.0-{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "image tag not on channel" in log, log
+    assert "cannot read the build sha" not in log, log
+    assert "unbuilt:" in log, f"the stale off-channel image was not compared: {log}"
+
+
 def test_healthy_fleet_reports_no_critical(sandbox: Sandbox) -> None:
     """A healthy fleet must be silent, and the health URL must be well formed.
 
