@@ -1,17 +1,10 @@
 version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-  - package-ecosystem: pip
-    directory: /
+      interval: "weekly"
+  - package-ecosystem: "pip"
+    directory: "/"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-  - package-ecosystem: pip
-    directory: /ops/e2e
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: "weekly"
