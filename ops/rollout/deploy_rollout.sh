@@ -213,10 +213,18 @@ mkdir -p "$STATE_DIR" "$OVERRIDE_DIR"
 log "=== rollout start bot=$bot target=$TARGET_IMAGE cur=$CUR_IMAGE"
 
 health_check() {
-  local tries=0 code
+  local tries=0 code state restarts
   while [[ $tries -lt $HEALTH_TRIES ]]; do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:$PORT/health" || echo 000)
     if [[ "$code" == "200" ]]; then
+      state=$(docker inspect -f '{{.State.Status}}' "botkit-$bot" 2>/dev/null || echo unknown)
+      restarts=$(docker inspect -f '{{.RestartCount}}' "botkit-$bot" 2>/dev/null || echo 0)
+      if [[ "$state" != "running" ]]; then
+        echo "fail(state=$state)"; return 1
+      fi
+      if [[ "$restarts" -gt 0 ]]; then
+        echo "fail(restarts=$restarts)"; return 1
+      fi
       echo "ok"; return 0
     fi
     tries=$((tries + 1)); sleep "$HEALTH_WAIT"
