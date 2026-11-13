@@ -28,6 +28,7 @@ MAINTENANCE_FLAG="/root/botkit-maintenance"
 LOG="/var/log/botkit-rollout-check.log"
 ROLLOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy_rollout.sh"
 RETRY_MINUTES=90
+HEALTH_CHECK_TEXTFILE="${HEALTH_CHECK_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_rollout_check.prom}"
 
 BOTS=(bookingbot leadgen store support membership pricesentry docuflow delivery reminder)
 
@@ -150,5 +151,13 @@ for bot in "${BOTS[@]}"; do
     rc_global=1
   fi
 done
+
+# Publish self freshness + last verdict for the BotkitRolloutCheckStale alert.
+# The exit code already fails the unit on real failures; the metric makes the tick
+# itself observable (dead unit, masked timer, stuck script) the same way drift does.
+rollout_out=$(mktemp "${HEALTH_CHECK_TEXTFILE}.XXXXXX") && {
+  printf 'botkit_rollout_check_last_run_seconds %s\nbotkit_rollout_check_state %s\n' "$(date +%s)" "$rc_global" > "$rollout_out"
+  mv -f "$rollout_out" "$HEALTH_CHECK_TEXTFILE"
+}
 
 exit "$rc_global"

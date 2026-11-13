@@ -1,6 +1,28 @@
 groups:
   - name: botkit
     rules:
+      - alert: BotkitHealthcheckStale
+        expr: |
+          absent(botkit_healthcheck_last_run_seconds)
+          or (time() - botkit_healthcheck_last_run_seconds > 900)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Healthcheck не обновляет метрики"
+          description: "botkit_healthcheck_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-healthcheck.timer; journalctl -u botkit-healthcheck; ls -l /var/lib/node-exporter-textfile/botkit_healthcheck.prom; systemctl show botkit-healthcheck -p ReadWritePaths"
+
+      - alert: BotkitRolloutCheckStale
+        expr: |
+          absent(botkit_rollout_check_last_run_seconds)
+          or (time() - botkit_rollout_check_last_run_seconds > 900)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Проверка раскатки не обновляет метрики"
+          description: "botkit_rollout_check_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-rollout-check.timer; journalctl -u botkit-rollout-check; ls -l /var/lib/node-exporter-textfile/botkit_rollout_check.prom; systemctl show botkit-rollout-check -p ReadWritePaths"
+
       - alert: BotDown
         expr: up{job="botkit"} == 0
         for: 2m
