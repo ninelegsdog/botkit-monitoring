@@ -331,7 +331,9 @@ class TelegramTester:
                     await self.client.send_message(username, st.send)
                     result = await self._wait_reply(username, timeout, seen)
             except Exception as exc:
-                raise StepError(i + 1, getattr(st, "expect", ""), exc) from exc
+                expect_any = tuple(getattr(st, "expect_any", ()) or ())
+                expected = " | ".join(expect_any) if expect_any else getattr(st, "expect", "")
+                raise StepError(i + 1, expected, exc) from exc
             out.append(result)
             if result.kind in (KIND_NO_REPLY, KIND_NO_BUTTON):
                 # The bot said nothing at all: the next step has nothing to react

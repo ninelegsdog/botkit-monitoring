@@ -76,10 +76,20 @@ class Step:
     its callback_data; the allowlist of permitted callback_data values is
     enforced by tests/test_no_unapproved_actions.py so a scenario can never tap
     a write/payment button.
+
+    `expect` and `expect_any` are mutually exclusive too. `expect` is the strict
+    single substring; `expect_any` lists replies that are all correct for views
+    whose text depends on account state, not on bot code: "Мои покупки" answers
+    "Нет покупок." for an empty test account and a list of orders otherwise. The
+    E2E account is isolated but not immutable - it is also an admin in every
+    bot, so a human can leave an order or a ticket behind. That turned a valid
+    reply into UnexpectedReply twice (29-30.10 and 08.11) and sent the reader to
+    debug a bot that was fine.
     """
 
     send: str = ""
     expect: str = ""
+    expect_any: tuple[str, ...] = ()
     press: str = ""
 
 
@@ -134,13 +144,23 @@ def load_scenarios(path) -> dict[str, Scenario]:
             send = str(raw.get("send", "") or "")
             press = str(raw.get("press", "") or "")
             expect = str(raw.get("expect", "") or "")
+            expect_any_raw = raw.get("expect_any")
+            if expect_any_raw is None:
+                expect_any_raw = []
+            if not isinstance(expect_any_raw, list):
+                msg = f"{bot}: 'expect_any' must be a list of strings, got {expect_any_raw!r}"
+                raise ValueError(msg)
+            expect_any = tuple(str(item) for item in expect_any_raw)
             if bool(send) == bool(press):
                 msg = f"{bot}: step must have exactly one of 'send' or 'press', got {raw!r}"
                 raise ValueError(msg)
-            if not expect:
-                msg = f"{bot}: step is missing 'expect', got {raw!r}"
+            if bool(expect) == bool(expect_any):
+                # Both at once would make it ambiguous which list is authoritative,
+                # and neither is the case an empty expectation is a substring of
+                # everything - a step that asks nothing of the bot.
+                msg = f"{bot}: step needs exactly one of 'expect' or 'expect_any', got {raw!r}"
                 raise ValueError(msg)
-            steps.append(Step(send=send, expect=expect, press=press))
+            steps.append(Step(send=send, expect=expect, expect_any=expect_any, press=press))
         out[bot] = Scenario(steps=steps)
     return out
 

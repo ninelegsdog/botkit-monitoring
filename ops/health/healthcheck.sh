@@ -118,6 +118,21 @@ else
   fi
 fi
 
+# --- 5c. auto-rollout timer is enabled --------------------------------------
+# A disabled rollout timer freezes the fleet silently: merges to main keep building
+# images, nothing rolls them out, and every bot stays healthy on an old tag while all
+# dashboards read green. That is not hypothetical - the timer was stopped by hand on
+# 07.11 during maintenance and left off, and the next merge would have gone unnoticed.
+# `is-enabled` is the fact that matters: `is-active` is also true for a manual start,
+# and a masked or missing unit is a different kind of gone.
+ROLLOUT_TIMER="${ROLLOUT_TIMER:-botkit-rollout-check.timer}"
+if ! systemctl cat "$ROLLOUT_TIMER" >/dev/null 2>&1; then
+  note_fail "rollout=timer-missing ($ROLLOUT_TIMER)"
+else
+  timer_state=$(systemctl is-enabled "$ROLLOUT_TIMER" 2>/dev/null || echo unknown)
+  [ "$timer_state" = "enabled" ] || note_fail "rollout=timer-$timer_state ($ROLLOUT_TIMER)"
+fi
+
 # --- 6. backup freshness ----------------------------------------------------
 # Two independent freshness signals: the 6h cp copies the green checks already
 # look at, and the consistent sqlite export that has been failing since 03.10.
@@ -139,7 +154,7 @@ fi
 
 # --- verdict ----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
-  echo "$(ts) OK bots=${ok}/${#PORTS[@]} services=${#SERVICES[@]} containers=clean units=clean backups=fresh" >>"$LOG"
+  echo "$(ts) OK bots=${ok}/${#PORTS[@]} services=${#SERVICES[@]} containers=clean units=clean rollout=enabled backups=fresh" >>"$LOG"
   exit 0
 fi
 echo "$(ts) FAIL problems=${fail} bots=${ok}/${#PORTS[@]}" >>"$LOG"
