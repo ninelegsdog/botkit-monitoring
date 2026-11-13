@@ -43,38 +43,45 @@ exit 0
 """
 
 
-@pytest.fixture
-def run_health(tmp_path: pathlib.Path):
-    """Run the real healthcheck with stubbed systemctl/curl/docker."""
-    stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
-    for name, body in (
-        ("systemctl", SYSTEMCTL_STUB),
-        ("curl", CURL_STUB),
-        ("docker", DOCKER_STUB),
-    ):
-        path = stub_bin / name
-        path.write_text(body)
-        path.chmod(0o755)
+class RunHealth:
+    """Callable harness around the real healthcheck.sh with stubbed systemctl/curl/docker."""
 
-    log = tmp_path / "health.log"
+    def __init__(self, tmp_path: pathlib.Path) -> None:
+        self.tmp_path = tmp_path
+        self.log = tmp_path / "health.log"
+        self.textfile = tmp_path / "botkit_healthcheck.prom"
+        stub_bin = tmp_path / "bin"
+        stub_bin.mkdir()
+        for name, body in (
+            ("systemctl", SYSTEMCTL_STUB),
+            ("curl", CURL_STUB),
+            ("docker", DOCKER_STUB),
+        ):
+            path = stub_bin / name
+            path.write_text(body)
+            path.chmod(0o755)
 
-    def run(**env: str) -> str:
+    def __call__(self, **env: str) -> str:
         subprocess.run(
             ["bash", str(HEALTH_SH)],
             env={
                 **os.environ,
-                "PATH": f"{stub_bin}:{os.environ['PATH']}",
-                "BOTKIT_HEALTH_LOG": str(log),
+                "PATH": f"{self.tmp_path / 'bin'}:{os.environ['PATH']}",
+                "BOTKIT_HEALTH_LOG": str(self.log),
+                "BOTKIT_HEALTH_TEXTFILE": str(self.textfile),
                 **env,
             },
             capture_output=True,
             text=True,
             check=False,
         )
-        return log.read_text() if log.exists() else ""
+        return self.log.read_text() if self.log.exists() else ""
 
-    return run
+
+@pytest.fixture
+def run_health(tmp_path: pathlib.Path) -> RunHealth:
+    """Run the real healthcheck with stubbed systemctl/curl/docker."""
+    return RunHealth(tmp_path)
 
 
 def test_disabled_rollout_timer_is_reported(run_health) -> None:
@@ -94,3 +101,21 @@ def test_enabled_rollout_timer_is_not_flagged(run_health) -> None:
     """
     log = run_health(STUB_TIMER_STATE="enabled")
     assert "rollout=" not in log, log
+
+
+def test_healthcheck_publishes_own_staleness(run_health: RunHealth) -> None:
+    """The watcher publishes its own freshness; a stale file must FAIL."""
+    log = run_health(STUB_TIMER_STATE="enabled")
+    assert run_health.textfile.exists(), run_health.textfile
+    content = run_health.textfile.read_text()
+    assert content.startswith("botkit_healthcheck_last_run_seconds "), content
+    assert "botkit_healthcheck_ok " in content, content
+    assert "healthcheck=stale" not in log, log
+
+
+def test_healthcheck_ok_carries_verdict(run_health: RunHealth) -> None:
+    """Disabled timer -> ok=0 published alongside the FAIL line."""
+    log = run_health(STUB_TIMER_STATE="disabled")
+    content = run_health.textfile.read_text()
+    assert "botkit_healthcheck_ok 0" in content, content
+    assert "rollout=timer-disabled" in log, log
