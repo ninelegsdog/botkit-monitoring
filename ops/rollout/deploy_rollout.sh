@@ -352,15 +352,19 @@ DIGEST=$(docker image inspect -f '{{index .RepoDigests 0}}' "$TARGET_IMAGE" 2>/d
 log "bot=$bot pulled digest=$DIGEST"
 
 log "bot=$bot deploying $TARGET_IMAGE ..."
-# PREV_TAG is read before anything is written, so the rollback restores the state the bot
-# was actually in rather than a value guessed from the container's image reference - which
-# breaks on a digest-pinned deployment, where there is no tag to parse out of it.
-PREV_TAG=$(read_image_tag)
-if [[ -z "$PREV_TAG" ]]; then
-  # First rollout after the move off overrides: derive the tag from what is running so a
-  # rollback has something to go back to.
+# The rollback target must be the image the container is actually running, not the
+# IMAGE_TAG recorded in the env file. The env file can lag behind the container (manual
+# rollback, or an earlier rollout interrupted after it wrote the pin). Incident
+# 2026-11-13: membership's env said v0.8.5-7daeec5 while the healthy container ran
+# v0.8.5-40bcb62, so a failed rollout "rolled back" onto the broken 7daeec5 image and
+# left the bot in a restart loop. Prefer CUR_IMAGE; fall back to the pin only when the
+# container reference is digest-pinned and has no tag to parse.
+PREV_TAG=""
+if [[ "$CUR_IMAGE" != *"@"* && "$CUR_IMAGE" == *:* ]]; then
   PREV_TAG="${CUR_IMAGE##*:}"
-  [[ "$PREV_TAG" != "$CUR_IMAGE" ]] || PREV_TAG=""
+fi
+if [[ -z "$PREV_TAG" ]]; then
+  PREV_TAG=$(read_image_tag)
 fi
 if ! set_image_tag "$IMG"; then
   log "bot=$bot CRITICAL could not write IMAGE_TAG=$IMG into $ENV_FILE"
