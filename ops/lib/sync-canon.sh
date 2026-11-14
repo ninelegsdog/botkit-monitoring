@@ -240,4 +240,14 @@ if [ "$CHECK_ONLY" != 1 ] && [ -r "$REPO/ops/lib/install-units.sh" ]; then
   bash "$REPO/ops/lib/install-units.sh"
 fi
 
+# Метрика возраста последнего успешного синка канона (D12 / issue #91).
+SYNC_TEXTFILE=${SYNC_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_sync_canon_last_run_seconds.prom}
+sync_tmp=$(mktemp "${SYNC_TEXTFILE}.XXXXXX") && {
+  printf '# HELP botkit_sync_canon_last_run_seconds Unix time of the last successful sync-canon run\n' > "$sync_tmp"
+  printf '# TYPE botkit_sync_canon_last_run_seconds gauge\n' >> "$sync_tmp"
+  printf 'botkit_sync_canon_last_run_seconds %s\n' "$(date +%s)" >> "$sync_tmp"
+  chmod 644 "$sync_tmp"
+  mv -f "$sync_tmp" "$SYNC_TEXTFILE"
+}
+
 echo "SYNC OK $head_sha"
