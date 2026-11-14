@@ -59,6 +59,15 @@ groups:
           summary: "Webhook unreachable for {{ $labels.bot }}"
           description: "Публичный webhook https://ninelegsbots.duckdns.org/webhook/{{ $labels.bot }} не отвечает 3+ минут (nginx/приложение/сеть)"
 
+      - alert: MonitorVPSDown
+        expr: probe_success{job="blackbox-monitor"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Monitoring VPS 31.76.11.198 unreachable"
+          description: "TCP/22 к монитору не проходит 5+ минут: Kuma, WG-выход predator и E2E-туннель недоступны. Kuma о своей смерти не сообщит, поэтому этот алерт — единственный внешний наблюдатель за монитором."
+
       - alert: BotCrmOutboxPendingHigh
         expr: bot_crm_outbox_pending{job="botkit"} > 100
         for: 5m
