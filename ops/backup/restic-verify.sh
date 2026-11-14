@@ -52,10 +52,10 @@ write_metrics() {
     for s in data monitor; do
       echo "botkit_backup_verify_last_timestamp_seconds{stream=\"$s\"} ${TS[$s]:-0}"
     done
+    echo "# HELP botkit_backup_verify_last_run_seconds Unix time of the last verify run"
+    echo "# TYPE botkit_backup_verify_last_run_seconds gauge"
+    echo "botkit_backup_verify_last_run_seconds $(date +%s)"
   } > "$tmp"
-  echo "# HELP botkit_backup_verify_last_run_seconds Unix time of the last verify run"
-  echo "# TYPE botkit_backup_verify_last_run_seconds gauge"
-  echo "botkit_backup_verify_last_run_seconds $(date +%s)"
   chmod 644 "$tmp"
   mv -f "$tmp" "$TEXTFILE"
 }
