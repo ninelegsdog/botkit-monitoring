@@ -82,6 +82,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The E2E runner clone was never updated after provisioning. host-setup.sh cloned
+  /opt/botkit-e2e once and nothing fetched it again, so the runner executed the
+  commit from the day the host was provisioned. On 14.11 that was b10d1e8 from
+  15.10 — 24 commits behind origin/main, including every E2E fix merged since,
+  so the two chronic failures (BotNotAnswering on membership, UnexpectedReply on
+  reminder) were reported on code that no longer existed in the repository. A
+  new root-owned oneshot `botkit-e2e-sync.service` now runs
+  `ops/e2e/scripts/sync-runner-clone.sh` before every run: fetch, reset --hard,
+  restore the clone's 0750/o-rwx policy, reinstall the venv when
+  requirements.txt changed, and fail loudly on a fetch error. `botkit-e2e.service`
+  now Requires= and After= it, so a runner that cannot be updated does not report
+  on code that is not canon. host-setup.sh installs the unit and syncs an
+  existing clone when re-run.
+
 - Two E2E scenarios asserted only the empty state of a view that depends on account state,
   so every run since 12.11 was red with `BotNotAnswering` (membership) and
   `UnexpectedReply` (reminder) and paged Telegram for two healthy bots. `mem:my` edits to
