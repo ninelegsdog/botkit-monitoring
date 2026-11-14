@@ -452,6 +452,28 @@ groups:
           summary: "Метрики запуска бэкапа нет"
           description: "botkit_backup_consistent_failures не поступает от node_exporter более 30 минут — таймер botkit-restic-data.timer не работает либо botkit-restic-backup падает до записи метрики. Согласованные снимки не контролируются."
 
+      - alert: BotkitBackupVerifyStale
+        expr: |
+          absent(botkit_backup_verify_last_run_seconds)
+          or (time() - botkit_backup_verify_last_run_seconds > 86400)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Глубокая проверка бэкапов не запускалась больше суток"
+          description: "botkit_backup_verify_last_run_seconds не обновляется — таймер botkit-restic-verify.timer не работает или юнит падает до записи. Проверить: systemctl status botkit-restic-verify.timer; journalctl -u botkit-restic-verify"
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/backup-verify.md"
+
+      - alert: BotkitBackupVerifyFailed
+        expr: botkit_backup_verify_ok == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Глубокая проверка бэкапов завершилась с ошибкой"
+          description: "restic-verify запустился, но проверка не прошла (ok=0). Проверить: journalctl -u botkit-restic-verify; systemctl status botkit-restic-verify.service"
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/backup-verify.md"
+
   # Самонаблюдение стека: пока эти сигналы отсутствовали, «умер Prometheus» и
   # «умер Alertmanager» не были ничьими алертами, а неудачная доставка уведомлений
   # выглядела как «алертов нет». Правила и self-scrape job'ы жили только на проде

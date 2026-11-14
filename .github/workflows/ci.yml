@@ -106,6 +106,14 @@ jobs:
           done
           if [ "$bad" -ne 0 ]; then exit 1; fi
           echo "OK: all textfile writers chmod 644"
+      - name: host-check script syntax
+        # host-check.sh runs on the host (not in CI), but its syntax must be valid.
+        run: |
+          bash -n ops/lib/host-check.sh
+          bash -n ops/lib/install-units.sh
+          bash -n ops/lib/textfile_write.sh
+          bash -n ops/lib/clone_sync.sh
+          echo "OK: all host scripts parse"
       - name: backup freshness parser
         # The parser picks which restic snapshot decides the backup's age. Picking the
         # wrong one flipped a healthy offsite backup to "stale" and fired false alerts
