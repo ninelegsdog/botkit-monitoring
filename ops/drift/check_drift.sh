@@ -474,12 +474,51 @@ for entry in $BOTS; do
   fi
 done
 
+# Метрика возраста клонов (issue #90): для каждого бота — возраст HEAD в секундах
+# с момента коммита (т.е. сколько времени клон «застрял» за последним синком).
+clone_ages=$(for entry in $BOTS; do
+  bot="${entry%%:*}"
+  d="$DEPLOY_ROOT/botkit-$bot"
+  if [ -d "$d" ]; then
+    head=$(git -c safe.directory="$d" -C "$d" rev-parse HEAD 2>/dev/null)
+    if [ -n "$head" ]; then
+      cdate=$(git -c safe.directory="$d" -C "$d" show -s --format=%ct "$head" 2>/dev/null)
+      if [ -n "$cdate" ]; then
+        age=$(( $(now_s) - cdate ))
+        echo "botkit_clone_age_seconds{bot=\"$bot\"} ${age:-0}"
+      fi
+    fi
+  fi
+done)
+
+# Метрика возраста клонов (issue #90): для каждого бота — возраст HEAD в секундах
+# с момента коммита (т.е. сколько времени клон «застрял» за последним синком).
+clone_ages=$(for entry in $BOTS; do
+  bot="${entry%%:*}"
+  d="$DEPLOY_ROOT/botkit-$bot"
+  if [ -d "$d" ]; then
+    head=$(git -c safe.directory="$d" -C "$d" rev-parse HEAD 2>/dev/null)
+    if [ -n "$head" ]; then
+      cdate=$(git -c safe.directory="$d" -C "$d" show -s --format=%ct "$head" 2>/dev/null)
+      if [ -n "$cdate" ]; then
+        age=$(( $(now_s) - cdate ))
+        echo "botkit_clone_age_seconds{bot=\"$bot\"} ${age:-0}"
+      fi
+    fi
+  fi
+done)
+
 # атомарная запись метрик (mktemp даёт 600 — node-exporter от nobody не прочитает)
 out=$(mktemp "${TEXTFILE}.XXXXXX") && {
   {
     echo "# HELP botkit_drift_ok 1 if the bot prod clone is clean (no drift beyond grace, no critical)"
     echo "# TYPE botkit_drift_ok gauge"
     cat "$METRICS_TMP"
+    echo "# HELP botkit_clone_age_seconds Age of bot clone HEAD in seconds"
+    echo "# TYPE botkit_clone_age_seconds gauge"
+    while read -r line; do
+      echo "$line"
+    done <<< "$clone_ages"
     echo "# HELP botkit_drift_last_check_timestamp_seconds Unix time of the last drift check run"
     echo "# TYPE botkit_drift_last_check_timestamp_seconds gauge"
     echo "botkit_drift_last_check_timestamp_seconds $(now_s)"
