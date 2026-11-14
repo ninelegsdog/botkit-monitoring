@@ -1,0 +1,129 @@
+{
+  "title": "Botkit Monitoring Health",
+  "tags": [
+    "botkit",
+    "monitoring",
+    "health"
+  ],
+  "timezone": "utc",
+  "panels": [
+    {
+      "title": "Poller Last Run (seconds ago)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "time() - botkit_healthcheck_last_run_seconds",
+          "legendFormat": "healthcheck"
+        },
+        {
+          "expr": "time() - botkit_rollout_check_last_run_seconds",
+          "legendFormat": "rollout"
+        },
+        {
+          "expr": "time() - botkit_drift_last_check_timestamp_seconds",
+          "legendFormat": "drift"
+        },
+        {
+          "expr": "time() - botkit_image_prune_last_run_seconds",
+          "legendFormat": "image-prune"
+        }
+      ]
+    },
+    {
+      "title": "Poller Status (ok)",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "botkit_healthcheck_ok",
+          "legendFormat": "healthcheck"
+        },
+        {
+          "expr": "botkit_rollout_check_state",
+          "legendFormat": "rollout"
+        },
+        {
+          "expr": "min(botkit_drift_ok)",
+          "legendFormat": "drift"
+        }
+      ]
+    },
+    {
+      "title": "Active Alerts",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "legendFormat": "{{ alertname }}"
+        }
+      ]
+    },
+    {
+      "title": "Bot Health (200 = healthy)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"botkit\"}",
+          "legendFormat": "{{ instance }}"
+        }
+      ]
+    },
+    {
+      "title": "Disk Usage",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}",
+          "legendFormat": "root"
+        }
+      ]
+    },
+    {
+      "title": "Memory Usage",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+          "legendFormat": "RAM"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

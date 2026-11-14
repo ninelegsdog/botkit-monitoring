@@ -39,7 +39,8 @@ GIT_USER=${GIT_USER:-deploy}
 # git state. It exists so the assertions can be exercised on a scratch copy - the only
 # way to show a gate fails is to feed it the defect it is supposed to catch.
 CHECK_ONLY=0
-if [ "${1:-}" = "--check-only" ]; then
+# --dry-run is an alias for --check-only: validate without touching the host.
+if [ "${1:-}" = "--check-only" ] || [ "${1:-}" = "--dry-run" ]; then
   CHECK_ONLY=1
   shift
 fi

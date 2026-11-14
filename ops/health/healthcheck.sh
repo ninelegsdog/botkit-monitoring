@@ -8,6 +8,8 @@
 # Prometheus and a failed backup unit stayed invisible for two days: every
 # check that is absent from this script is a check the operator does not have.
 set -u
+_self=$(readlink -f "${BASH_SOURCE[0]}")
+. "$(dirname "$_self")/../lib/textfile_write.sh" 2>/dev/null || true
 
 HOST="${BOTKIT_HOST:-127.0.0.1}"
 PORTS=(8081 8082 8083 8084 8085 8086 8087 8088 8089)
@@ -18,8 +20,6 @@ DRIFT_UNIT="botkit-drift.service"
 # Backup cadence is 6h; 7h leaves one missed run before the check goes red.
 MAX_BACKUP_AGE="${MAX_BACKUP_AGE:-25200}"
 MAX_EXPORT_AGE="${MAX_EXPORT_AGE:-25200}"
-HEALTH_TEXTFILE="${BOTKIT_HEALTH_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_healthcheck.prom}"
-MAX_HEALTH_AGE="${MAX_HEALTH_AGE:-900}"
 HEALTH_TEXTFILE="${BOTKIT_HEALTH_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_healthcheck.prom}"
 MAX_HEALTH_AGE="${MAX_HEALTH_AGE:-900}"
 
@@ -208,11 +208,8 @@ fi
 # invisible to the collector, so the metrics simply do not exist - and the alert on
 # them is `absent(...) or ...`, which is true for a missing metric. On 14.11 that
 # read as a dead healthcheck while it was running every five minutes and writing.
-health_out=$(mktemp "${HEALTH_TEXTFILE}.XXXXXX") && {
-  printf 'botkit_healthcheck_last_run_seconds %s\nbotkit_healthcheck_ok %s\n' "$now" "$([ "$fail" -eq 0 ] && printf 1 || printf 0)" > "$health_out"
-  chmod 644 "$health_out"
-  mv -f "$health_out" "$HEALTH_TEXTFILE"
-}
+write_textfile "$HEALTH_TEXTFILE" "botkit_healthcheck_last_run_seconds $now
+botkit_healthcheck_ok $([ "$fail" -eq 0 ] && printf 1 || printf 0)"
 
 # --- verdict ----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then

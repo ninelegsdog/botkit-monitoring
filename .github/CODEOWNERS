@@ -1,3 +1,16 @@
-# One owner today. This file exists so that the day a second owner appears, the
-# rule is already written down instead of negotiated under pressure.
+# Code owners for botkit-monitoring
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner
 * @ninelegsdog
+
+# Monitoring infrastructure
+/ops/ @ninelegsdog
+/prometheus/ @ninelegsdog
+/grafana/ @ninelegsdog
+
+# E2E tests
+/ops/e2e/ @ninelegsdog
+
+# CI/CD
+/.github/ @ninelegsdog

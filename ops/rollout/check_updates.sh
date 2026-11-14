@@ -19,6 +19,7 @@
 set -uo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/clone_sync.sh" 2>/dev/null || true
 
 REGISTRY="ghcr.io"
 OWNER="ninelegsdog"
@@ -48,6 +49,17 @@ if [[ -f "$MAINTENANCE_FLAG" ]]; then
   log "maintenance flag present ($MAINTENANCE_FLAG) — skip all"
   exit 0
 fi
+
+# Keep bot clones current with origin/main before deploying from them.
+# A stale clone deploys from a stale recipe (13.10 drift incident).
+for bot in "${BOTS[@]}"; do
+  clone_dir="/home/deploy/botkit-$bot"
+  if [[ -d "$clone_dir/.git" ]]; then
+    if ! sync_clone "$clone_dir" "main"; then
+      log "WARNING: clone sync failed for $bot (continuing with current checkout)"
+    fi
+  fi
+done
 
 latest_sha7() {
   # print latest successful deploy.yml run short sha, or empty
