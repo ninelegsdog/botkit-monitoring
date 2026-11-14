@@ -82,6 +82,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Two E2E scenarios asserted only the empty state of a view that depends on account state,
+  so every run since 12.11 was red with `BotNotAnswering` (membership) and
+  `UnexpectedReply` (reminder) and paged Telegram for two healthy bots. `mem:my` edits to
+  either "У вас нет активной подписки." or the "👤 Подписка: <plan>" card, and the reminder
+  list answers "Нет напоминаний" or one `#<id> … — <text>` line per reminder. Both steps
+  now use `expect_any`, the form `scenarios.yml` already documents for exactly this case,
+  and a test pins the two views so they cannot drift back to a single branch.
+
 - The self-re-exec guard in `sync-canon.sh` now actually fires. It hashed the running
   script's *path* after `git reset --hard`, and by then that path is the synced file — so
   the two hashes were always equal and the guard was a no-op. That is why the
