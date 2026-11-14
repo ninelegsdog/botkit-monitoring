@@ -1,0 +1,56 @@
+# Units the host must run exactly as canon ships them.
+#
+# Why a manifest and not "everything under ops/*/systemd": the sync used to update every
+# script and no unit file at all. On 14.11 the installed botkit-rollout-check.service still
+# had the ReadWritePaths list from before the textfile metric existed, so the poller ran,
+# finished its nine checks, and died on `mktemp: Read-only file system` when it tried to
+# publish its verdict. The rule that fired was BotkitRolloutCheckStale - an `absent()` rule
+# that cannot tell a dead poller from a unit that cannot write its own metric. The canon
+# copy had the path; the host had the old file; nothing compared them.
+#
+# The list is explicit because "install whatever is in canon" is wrong in both directions:
+#
+#   - ops/backup/systemd/check-backs.service said ExecStart=/root/check_backups.sh while the
+#     host ran the repo path directly. Both worked, because /root/check_backups.sh is a
+#     symlink into the repo, but installing canon blindly would have replaced a direct path
+#     with an indirection.
+#   - ops/e2e/systemd/botkit-e2e.{service,timer} describe a runner that does not exist on
+#     this host yet (unprivileged user, /opt/botkit-e2e, /etc/botkit-e2e/e2e.env). Installing
+#     them would stop the e2e that runs today.
+#   - ops/backlog/systemd/* belong to another host.
+#
+# So a unit is managed when it is both installed here and shipped by canon, and it is listed
+# here on purpose. Adding a unit to canon does not silently change the host; adding it to
+# this list does, and that edit is reviewable.
+#
+# One basename per line. Comments and blank lines are ignored.
+botkit-healthcheck.service
+botkit-healthcheck.timer
+botkit-drift.service
+botkit-drift.timer
+botkit-rollout-check.service
+botkit-rollout-check.timer
+botkit-image-prune.service
+botkit-image-prune.timer
+botkit-webhook-check.service
+botkit-webhook-check.timer
+botkit-restic-check.service
+botkit-restic-check.timer
+botkit-restic-cp.service
+botkit-restic-cp.timer
+botkit-restic-data.service
+botkit-restic-data.timer
+botkit-restic-monitor.service
+botkit-restic-monitor.timer
+botkit-restic-verify.service
+botkit-restic-verify.timer
+botkit-smoke.service
+botkit-smoke.timer
+botkit-otlp-e2e.service
+botkit-otlp-e2e.timer
+botkit-heartbeat.service
+botkit-heartbeat.timer
+botkit-certbot-renew.service
+botkit-certbot-renew.timer
+check-backs.service
+check-backs.timer

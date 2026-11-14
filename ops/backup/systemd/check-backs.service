@@ -3,4 +3,9 @@ Description=Check botkit backups freshness + alert
 
 [Service]
 Type=oneshot
-ExecStart=/root/check_backups.sh
+# Run the script out of the synced repository, like every other unit here. The host has
+# /root/check_backups.sh as a symlink into the repo, and this file used to name that
+# symlink while the installed unit named the repo path directly — two ways to run one
+# script, and the sync compared neither. The direct path is the one to keep: an
+# indirection in /root is one more thing that can point elsewhere.
+ExecStart=/home/deploy/botkit-monitoring/ops/backup/check_backups.sh
