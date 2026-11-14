@@ -82,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The self-re-exec guard in `sync-canon.sh` now actually fires. It hashed the running
+  script's *path* after `git reset --hard`, and by then that path is the synced file — so
+  the two hashes were always equal and the guard was a no-op. That is why the
+  Prometheus-reload step and the unit-install step each appeared only on the second sync
+  after their merge: the run that installed them finished as the old bytes and printed
+  `SYNC OK`. The hash is now taken at the top of the script, before anything can replace
+  the file, and the regression test is the exact shape of the defect — one path rewritten
+  in place between the hash and the call.
+
 - The sync now installs and verifies the systemd units the host runs. It kept every script
   equal to canon and never looked at `/etc/systemd/system`: on 14.11 the installed
   `botkit-rollout-check.service` still had a `ReadWritePaths` list from before the textfile

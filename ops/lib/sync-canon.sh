@@ -30,6 +30,12 @@ if [ "${1:-}" = "--check-only" ]; then
   shift
 fi
 EXPECT_REF="${1:-HEAD}"
+# The hash of the code that is actually executing, taken here, before anything can replace
+# this file. Step 3 resets the clone, and when the synced commit changes sync-canon.sh the
+# rest of the run would otherwise continue as the old bytes. Hashing the path *after* the
+# reset compares the file with itself and always matches — which is exactly how the first
+# version of this guard silently did nothing.
+SELF_HASH=$(sha256sum "${BASH_SOURCE[0]}" 2>/dev/null | awk '{print $1}') || SELF_HASH=""
 MARKERS=(
   "prometheus/blackbox.yml:tls_trusted"
   "prometheus/prometheus.yml:job_name: webhook-trusted"
@@ -70,10 +76,12 @@ fi
 # bash keeps reading this file as it executes, and step 3 just replaced it on disk. If the
 # synced commit changed sync-canon.sh itself, everything below would run as the old code
 # while the clone holds the new one - so a step added in this commit would not run on the
-# sync that installs it. The helper compares hashes and re-execs the synced copy.
+# sync that installs it. SELF_HASH was taken before the reset; comparing it with the synced
+# copy is what makes the difference visible (hashing the path here would compare the file
+# with itself and always match).
 if [ "$CHECK_ONLY" != 1 ] && [ -r "$REPO/ops/lib/reexec-if-changed.sh" ]; then
   . "$REPO/ops/lib/reexec-if-changed.sh"
-  reexec_if_changed "${BASH_SOURCE[0]}" "$REPO/ops/lib/sync-canon.sh" "$EXPECT_REF"
+  reexec_if_changed "$SELF_HASH" "$REPO/ops/lib/sync-canon.sh" "$EXPECT_REF"
 fi
 
 echo "=== 4. content markers (HEAD alone does not prove the sync) ==="
