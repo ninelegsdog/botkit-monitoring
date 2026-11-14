@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Docker image history is now bounded by policy instead of by hand. Nothing removed an
+  image before: every merge builds an immutable tag, the rollout pulls it, and the
+  previous one stayed forever. On 14.11 the host carried 375 images for nine bots — about
+  40 per repository, 47.8 GB on a 119 GB disk — and the only reclamation that had ever
+  happened was a manual `docker system prune`. `ops/rollout/prune_images.sh` keeps the
+  newest ten tags per repository (`BOTKIT_KEEP_IMAGES`) plus the image the container is
+  actually running, because that is the only rollback target `deploy_rollout.sh` has; a
+  tag older than the window is still kept when it is the running one. Removal is by tag
+  reference, not image id, so a tag held by a stopped container is refused, logged and
+  retried next run rather than failing the unit. A weekly
+  `botkit-image-prune.timer` runs it, and `BotkitImagePruneStale` fires on an absent or
+  eight-day-old metric — the same `absent()` shape that hid the healthcheck and rollout
+  textfiles, so the script chmods its textfile 644 for the unprivileged collector.
+
 - The monitoring VPS itself is watched from prod. Prometheus probes
   `31.76.11.198:22` through blackbox (`blackbox-monitor`) and `MonitorVPSDown`
   fires after 5 minutes: Kuma cannot report its own death, so on 13.11 the
