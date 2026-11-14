@@ -137,6 +137,9 @@ tmp=$(mktemp "${TEXTFILE}.XXXXXX") && {
     echo "# HELP botkit_image_prune_failures Tags that could not be removed in the last run"
     echo "# TYPE botkit_image_prune_failures gauge"
     echo "botkit_image_prune_failures $failed_total"
+    echo "# HELP botkit_image_prune_ok 1 if the last run had no failures"
+    echo "# TYPE botkit_image_prune_ok gauge"
+    if [ "$failed_total" -eq 0 ]; then echo "botkit_image_prune_ok 1"; else echo "botkit_image_prune_ok 0"; fi
     echo "# HELP botkit_image_count Local images per bot repository after the run"
     echo "# TYPE botkit_image_count gauge"
     cat "$count_metrics"

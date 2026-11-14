@@ -95,6 +95,8 @@ MAXAGE_CONSISTENT=${MAXAGE_CONSISTENT:-28800}
   echo "# TYPE botkit_backup_consistent_ok gauge"
   echo "# HELP botkit_backup_consistent_age_seconds Seconds since the last consistent-snapshot run"
   echo "# TYPE botkit_backup_consistent_age_seconds gauge"
+  echo "# HELP botkit_backup_last_run_seconds Unix time of the last restic-check run"
+  echo "# TYPE botkit_backup_last_run_seconds gauge"
 } >> "$tmp"
 
 c_ok=1
@@ -126,6 +128,7 @@ if [ "$c_ok" != "1" ]; then
   bad+=("consistent")
 fi
 
+echo "botkit_backup_last_run_seconds $(date +%s)" >> "$tmp"
 cat "$tmp" > "$TEXTFILE"
 chmod 644 "$TEXTFILE"
 rm -f "$tmp"
