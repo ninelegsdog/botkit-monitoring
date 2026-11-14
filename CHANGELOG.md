@@ -82,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `sync-canon.sh` now re-executes the copy it just synced when the commit changed
+  `sync-canon.sh` itself. Bash reads a script incrementally from its file, and step 3
+  replaces that file: on 14.11 the Prometheus-reload step was merged, `SYNC OK` was
+  printed, and the step never ran — the running process finished the old bytes while the
+  clone held the new code, so a gate was skipped on the very sync that installed it. The
+  helper (`ops/lib/reexec-if-changed.sh`) compares hashes, execs the synced copy with the
+  same arguments, and disables itself in the child via `SYNC_CANON_REEXEC` so it cannot
+  loop.
+
 - `sync-canon.sh` now proves the running Prometheus loaded the canon rules. Prometheus
   does not watch its rule files: on 14.11 `BotkitImagePruneStale` was merged, synced and
   marked present in the clone while `/api/v1/rules` still listed the previous 40 rules —
