@@ -36,14 +36,17 @@ groups:
           runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/rollout-check.md"
 
       - alert: BotkitRolloutCheckFailed
-        expr: botkit_rollout_check_state == 0
-        for: 5m
+        # state — это код выхода поллера: 0 = все боты раскатаны, 1 = была неудача
+        # (guard, недоступный digest, ошибка registry). Выключенный таймер ловит
+        # BotkitRolloutCheckStale: там метрика просто перестаёт обновляться.
+        expr: botkit_rollout_check_state > 0
+        for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Раскатка отключена или не работает"
-          description: "Поллер запустился, но state=0 (таймер выключен или юнит отсутствует). Проверить: systemctl status botkit-rollout-check.timer; systemctl is-enabled botkit-rollout-check.timer"
-          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/tree/main/docs/runbooks"
+          summary: "Раскатка не удалась (state={{ $value }})"
+          description: "Последний прогон check_updates завершился с ошибкой: бот не раскатан, нет digest или отказал registry. Смотреть journalctl -u botkit-rollout-check и /var/log/botkit-rollout.log."
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/rollout-check.md"
 
       - alert: BotkitImagePruneStale
         # Nothing removed an image until 14.11: 375 images for nine bots, 47.8 GB on a
@@ -334,16 +337,6 @@ groups:
         annotations:
           summary: "RAM >92%"
           description: "Занято {{ $value | humanizePercentage }}. Swap: {{ $labels.instance }}"
-          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/tree/main/docs/runbooks"
-
-      - alert: HostSwapHigh
-        expr: (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes > 0.85
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Swap >85% на {{ $labels.instance }}"
-          description: "Swap занят на {{ $value | humanizePercentage }}. Проверить: free -m; docker stats --sort=-mem. Причинa: утечка памяти или нехватка RAM."
           runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/tree/main/docs/runbooks"
 
       # Давление памяти по PSI, а не по заполненности.
