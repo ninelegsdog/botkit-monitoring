@@ -63,8 +63,14 @@
       expect: "Добро пожаловать! Выберите действие"
     - send: "/start"
       expect: "Добро пожаловать! Выберите действие"
+    # mem:my edits the message to the empty state or to "👤 Подписка: <plan>". The E2E
+    # account is an admin everywhere and can hold a subscription, so both replies are
+    # correct bot behaviour; asserting only the empty one made every run since 12.11 red
+    # with BotNotAnswering - a press step fails on the *edited* text, and the bot did edit.
     - press: "mem:my"
-      expect: "У вас нет активной подписки"
+      expect_any:
+        - "У вас нет активной подписки"
+        - "👤 Подписка:"
 
 "botkit-pricesentry":
   steps:
@@ -81,8 +87,13 @@
   steps:
     - send: "/start"
       expect: "Подпишитесь на напоминания и рассылки"
+    # The list reply is "#<id> <type> <when> — <text>" per reminder. The separator is the
+    # only part of it that does not depend on the account's state, and the E2E account can
+    # have reminders left behind - UnexpectedReply on every run since 12.11.
     - send: "⏰ Мои напоминания"
-      expect: "Нет напоминаний"
+      expect_any:
+        - "Нет напоминаний"
+        - " — "
 
 "botkit-store":
   steps:
