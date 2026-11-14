@@ -53,9 +53,8 @@ write_metrics() {
       echo "botkit_backup_verify_last_timestamp_seconds{stream=\"$s\"} ${TS[$s]:-0}"
     done
   } > "$tmp"
+  chmod 644 "$tmp"
   mv -f "$tmp" "$TEXTFILE"
-  # mktemp даёт 600, а node-exporter читает от nobody — без 644 метрики невидимы
-  chmod 644 "$TEXTFILE"
 }
 
 declare -A OK TS
