@@ -114,6 +114,10 @@ jobs:
           bash -n ops/lib/textfile_write.sh
           bash -n ops/lib/clone_sync.sh
           echo "OK: all host scripts parse"
+      - name: TODO/FIXME without issue
+        # Every TODO/FIXME must reference an issue number.
+        run: |
+          bash ops/lib/todo_check.sh
       - name: backup freshness parser
         # The parser picks which restic snapshot decides the backup's age. Picking the
         # wrong one flipped a healthy offsite backup to "stale" and fired false alerts
