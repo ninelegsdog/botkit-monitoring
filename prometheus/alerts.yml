@@ -23,6 +23,22 @@ groups:
           summary: "Проверка раскатки не обновляет метрики"
           description: "botkit_rollout_check_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-rollout-check.timer; journalctl -u botkit-rollout-check; ls -l /var/lib/node-exporter-textfile/botkit_rollout_check.prom; systemctl show botkit-rollout-check -p ReadWritePaths"
 
+      - alert: BotkitImagePruneStale
+        # Nothing removed an image until 14.11: 375 images for nine bots, 47.8 GB on a
+        # 119 GB disk, and the only reclamation was a hand-run docker system prune. The
+        # growth is silent until HostDiskSpaceHigh at 85%, which is late enough for a
+        # pull to fail mid-rollout. The timer is weekly, so a day of slack: a dead timer
+        # or a unit that fails before writing its metric is what this catches.
+        expr: |
+          absent(botkit_image_prune_last_run_seconds)
+          or (time() - botkit_image_prune_last_run_seconds > 691200)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ретенция docker-образов не запускалась больше 8 суток"
+          description: "Еженедельный prune не обновляет метрику: таймер выключен, юнит падает до записи или textfile не читается node-exporter'ом. Образы копятся молча — проверить: systemctl status botkit-image-prune.timer; journalctl -u botkit-image-prune; ls -l /var/lib/node-exporter-textfile/botkit_image_prune.prom"
+
       - alert: BotDown
         expr: up{job="botkit"} == 0
         for: 2m
