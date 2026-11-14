@@ -11,6 +11,7 @@ groups:
         annotations:
           summary: "Healthcheck не обновляет метрики"
           description: "botkit_healthcheck_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-healthcheck.timer; journalctl -u botkit-healthcheck; ls -l /var/lib/node-exporter-textfile/botkit_healthcheck.prom; systemctl show botkit-healthcheck -p ReadWritePaths"
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/healthcheck.md"
 
       - alert: BotkitHealthcheckFailed
         expr: botkit_healthcheck_ok == 0
@@ -31,6 +32,7 @@ groups:
         annotations:
           summary: "Проверка раскатки не обновляет метрики"
           description: "botkit_rollout_check_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-rollout-check.timer; journalctl -u botkit-rollout-check; ls -l /var/lib/node-exporter-textfile/botkit_rollout_check.prom; systemctl show botkit-rollout-check -p ReadWritePaths"
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/rollout-check.md"
 
       - alert: BotkitRolloutCheckFailed
         expr: botkit_rollout_check_state == 0
