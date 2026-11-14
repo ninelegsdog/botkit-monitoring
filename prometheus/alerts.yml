@@ -336,6 +336,16 @@ groups:
           description: "Занято {{ $value | humanizePercentage }}. Swap: {{ $labels.instance }}"
           runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/tree/main/docs/runbooks"
 
+      - alert: HostSwapHigh
+        expr: (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / node_memory_SwapTotal_bytes > 0.85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Swap >85% на {{ $labels.instance }}"
+          description: "Swap занят на {{ $value | humanizePercentage }}. Проверить: free -m; docker stats --sort=-mem. Причинa: утечка памяти или нехватка RAM."
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/tree/main/docs/runbooks"
+
       # Давление памяти по PSI, а не по заполненности.
       # HostMemHigh смотрит на MemAvailable и молчит, пока доступно больше 8% RAM.
       # На проде это 55% (2.1 GiB) — хост формально здоров, и это правильно: под Linux
