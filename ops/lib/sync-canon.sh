@@ -159,4 +159,37 @@ if [ "$CHECK_ONLY" != 1 ]; then
   bash "$REPO/ops/e2e/install-webhook-check.sh" --repo "$REPO"
 fi
 
+echo "=== 6. running Prometheus must load every rule in the canon ==="
+# Prometheus does not watch its rule files. A rule added to prometheus/alerts.yml is in
+# the clone after the reset, passes the markers above, and is not in the running server:
+# 14.11 BotkitImagePruneStale was merged and synced while /api/v1/rules still showed the
+# previous 40 rules, so the new check did not exist and nothing said so. The reload is a
+# SIGHUP (the container runs without --web.enable-lifecycle), and the check is equality
+# over every alert name in the file, not a marker for the rule that happened to be added
+# last: a marker can be true while the rest of the file is stale.
+if [ "$CHECK_ONLY" != 1 ] && command -v docker >/dev/null 2>&1 \
+   && docker inspect botkit-monitoring-prometheus-1 >/dev/null 2>&1 \
+   && [ "$(docker inspect -f '{{.State.Running}}' botkit-monitoring-prometheus-1 2>/dev/null)" = "true" ]; then
+  docker kill -s HUP botkit-monitoring-prometheus-1 >/dev/null 2>&1 || true
+  _missing=""
+  for _try in $(seq 1 20); do
+    _live=$(curl -sf --max-time 3 http://127.0.0.1:9090/api/v1/rules 2>/dev/null \
+      | grep -o '"name":"[^"]*"' | sed 's/.*:"//;s/"$//' | sort -u)
+    _missing=""
+    while IFS= read -r _rule; do
+      [ -n "$_rule" ] || continue
+      printf '%s\n' "$_live" | grep -qxF "$_rule" || _missing="$_missing $_rule"
+    done < <(grep -oE '^[[:space:]]+- alert:[[:space:]]*[A-Za-z0-9_]+' "$REPO/prometheus/alerts.yml" \
+               | sed 's/.*:[[:space:]]*//')
+    [ -z "$_missing" ] && break
+    sleep 1
+  done
+  if [ -n "$_missing" ]; then
+    echo "FATAL: running Prometheus has not loaded these canon rules:$_missing" >&2
+    echo "       Check: docker logs botkit-monitoring-prometheus-1 --tail 20" >&2
+    exit 1
+  fi
+  echo "  ok: running Prometheus loaded every alert from canon"
+fi
+
 echo "SYNC OK $head_sha"
