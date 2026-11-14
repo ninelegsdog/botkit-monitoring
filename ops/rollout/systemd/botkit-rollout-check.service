@@ -59,7 +59,7 @@ UMask=0077
 # The alternative - keeping IMAGE_TAG in the generated override under /var/lib/botkit-rollout -
 # needs no grant, but it needs a second -f on every compose invocation, and a forgotten -f is
 # exactly what made this incident possible in the first place.
-ReadWritePaths=/var/lib/botkit-rollout /var/log /var/lib/docker /usr/local/etc/botkit
+ReadWritePaths=/var/lib/botkit-rollout /var/log /var/lib/docker /var/lib/node-exporter-textfile /usr/local/etc/botkit
 # /usr/local/etc/botkit used to be listed in ReadOnlyPaths as well. systemd applies ReadWritePaths
 # after ReadOnlyPaths, so it would have won anyway - but a path in both lists reads like a mistake
 # to whoever touches this file next, and that reader cannot tell which one is intended.

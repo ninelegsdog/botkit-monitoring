@@ -2,8 +2,13 @@
 Description=Botkit E2E Telegram smoke test (user account)
 Documentation=file:///opt/botkit-e2e/README.md
 # A user account can be banned; do not stack retries on top of the timer.
-After=network-online.target
+After=network-online.target botkit-e2e-sync.service
 Wants=network-online.target
+# The runner reads scenarios.yml and its own code out of the clone, so the clone is
+# updated first. Requires= and not Wants=, because a runner that could not be updated
+# would report on code that is not canon, and a false "bot is broken" page is worse
+# than no report - the watchdog already pages when the runner stops reporting.
+Requires=botkit-e2e-sync.service
 
 [Service]
 Type=oneshot

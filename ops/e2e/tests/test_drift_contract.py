@@ -575,6 +575,52 @@ def test_docs_only_commit_is_not_unbuilt_under_whole_repo_recipe(sandbox: Sandbo
     assert "unbuilt:" not in log, f"a docs-only commit was reported as unbuilt: {log}"
 
 
+def test_a_checkout_that_trails_main_on_ignored_paths_is_not_drift(sandbox: Sandbox) -> None:
+    """Чекаут, отставший только на paths-ignore, — не дрейф: rollout его не догонит.
+
+    Найдено на живой ферме 14.11: bookingbot сутки стоял на 18e78b9 при origin/main
+    c3c08dc, и вся разница была в .github/CODEOWNERS и .github/dependabot.yml. deploy.yml
+    для них образ не собирает, значит и раскатки, которая синхронизировала бы чекаут, не
+    будет никогда. Сравнение образов в том же прогоне честно писало "docs, tests and CI
+    only", а строка HEAD != origin/main держала rc=1 и красный алерт.
+    """
+    image_sha = _seed_with_recipe(sandbox, DOCKERFILE_SELECTIVE, {DOCS_PATH: "docs\n"})
+    clone = sandbox.deploy_root / f"botkit-{BOT}"
+    # Опубликовать ещё один коммит, для которого сборка не запускается, и оставить чекаут позади.
+    _commit(clone, {DOCS_PATH: "more docs\n"}, "docs: third commit")
+    _git("push", "origin", "main", cwd=clone)
+    _git("reset", "--hard", "HEAD~1", cwd=clone)
+
+    result = sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "TRACK OK" in log, log
+    assert "DRIFT" not in log, f"отставание на paths-ignore названо дрейфом: {log}"
+    assert result.returncode == 0, log
+
+
+def test_a_checkout_that_trails_main_on_a_runtime_path_is_still_drift(sandbox: Sandbox) -> None:
+    """Фильтр paths-ignore не должен глотать настоящий дрейф.
+
+    Тот же сценарий, но пропущенный коммит меняет файл, который попадает в образ. Здесь
+    сработает и сравнение образов, поэтому проверяется вердикт (rc=1), а не одна строка.
+    """
+    image_sha = _seed_with_recipe(sandbox, DOCKERFILE_SELECTIVE, {DOCS_PATH: "docs\n"})
+    clone = sandbox.deploy_root / f"botkit-{BOT}"
+    _commit(clone, {RUNTIME_PATH: "changed\n"}, "runtime: third commit")
+    _git("push", "origin", "main", cwd=clone)
+    _git("reset", "--hard", "HEAD~1", cwd=clone)
+
+    result = sandbox.run(STUB_IMAGE=f"{IMAGE_PREFIX}{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "TRACK OK" not in log, f"отставание на runtime-пути прощено: {log}"
+    assert "!= origin/main" in log, log
+    assert "unbuilt path: src/handlers.py" in log, log
+    assert "unbuilt:" in log, log
+    assert result.returncode == 0, log  # первый прогон только открывает окно grace
+
+
 def test_runtime_commit_is_reported_as_unbuilt(sandbox: Sandbox) -> None:
     """A change that lands inside the image must still raise tracking drift."""
     image_sha = _seed_clone(sandbox, second_commit={RUNTIME_PATH: "changed\n"})
@@ -622,6 +668,25 @@ def test_image_off_the_pinned_channel_is_reported(sandbox: Sandbox) -> None:
     sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:v0.7.0-abcdef0")
 
     assert "image tag not on channel" in sandbox.log_text(), sandbox.log_text()
+
+
+def test_off_channel_tag_still_has_its_sha_compared(sandbox: Sandbox) -> None:
+    """An off-channel tag is drift, but its build sha must still be read.
+
+    Live case 08-09.11: bookingbot sat on v0.8.2 while the channel was v0.8.5.
+    The old code could not read a sha behind a foreign prefix, logged "cannot read
+    the build sha" and never asked whether the image was stale. A bot parked on an
+    old channel is exactly where that question matters most, so the sha is now read
+    from the end of the tag and the staleness comparison still runs.
+    """
+    image_sha = _seed_clone(sandbox, second_commit={RUNTIME_PATH: "changed\n"})
+    sandbox.write_pin(f"v0.7.0-{image_sha[:7]}")
+    sandbox.run(STUB_IMAGE=f"ghcr.io/ninelegsdog/botkit-{BOT}:v0.7.0-{image_sha[:7]}")
+
+    log = sandbox.log_text()
+    assert "image tag not on channel" in log, log
+    assert "cannot read the build sha" not in log, log
+    assert "unbuilt:" in log, f"the stale off-channel image was not compared: {log}"
 
 
 def test_healthy_fleet_reports_no_critical(sandbox: Sandbox) -> None:

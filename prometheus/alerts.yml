@@ -1,6 +1,44 @@
 groups:
   - name: botkit
     rules:
+      - alert: BotkitHealthcheckStale
+        expr: |
+          absent(botkit_healthcheck_last_run_seconds)
+          or (time() - botkit_healthcheck_last_run_seconds > 900)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Healthcheck не обновляет метрики"
+          description: "botkit_healthcheck_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-healthcheck.timer; journalctl -u botkit-healthcheck; ls -l /var/lib/node-exporter-textfile/botkit_healthcheck.prom; systemctl show botkit-healthcheck -p ReadWritePaths"
+
+      - alert: BotkitRolloutCheckStale
+        expr: |
+          absent(botkit_rollout_check_last_run_seconds)
+          or (time() - botkit_rollout_check_last_run_seconds > 900)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Проверка раскатки не обновляет метрики"
+          description: "botkit_rollout_check_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-rollout-check.timer; journalctl -u botkit-rollout-check; ls -l /var/lib/node-exporter-textfile/botkit_rollout_check.prom; systemctl show botkit-rollout-check -p ReadWritePaths"
+
+      - alert: BotkitImagePruneStale
+        # Nothing removed an image until 14.11: 375 images for nine bots, 47.8 GB on a
+        # 119 GB disk, and the only reclamation was a hand-run docker system prune. The
+        # growth is silent until HostDiskSpaceHigh at 85%, which is late enough for a
+        # pull to fail mid-rollout. The timer is weekly, so a day of slack: a dead timer
+        # or a unit that fails before writing its metric is what this catches.
+        expr: |
+          absent(botkit_image_prune_last_run_seconds)
+          or (time() - botkit_image_prune_last_run_seconds > 691200)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ретенция docker-образов не запускалась больше 8 суток"
+          description: "Еженедельный prune не обновляет метрику: таймер выключен, юнит падает до записи или textfile не читается node-exporter'ом. Образы копятся молча — проверить: systemctl status botkit-image-prune.timer; journalctl -u botkit-image-prune; ls -l /var/lib/node-exporter-textfile/botkit_image_prune.prom"
+
       - alert: BotDown
         expr: up{job="botkit"} == 0
         for: 2m
@@ -36,6 +74,33 @@ groups:
         annotations:
           summary: "Webhook unreachable for {{ $labels.bot }}"
           description: "Публичный webhook https://ninelegsbots.duckdns.org/webhook/{{ $labels.bot }} не отвечает 3+ минут (nginx/приложение/сеть)"
+
+      - alert: MonitorVPSDown
+        expr: probe_success{job="blackbox-monitor"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Monitoring VPS 31.76.11.198 unreachable"
+          description: "TCP/22 к монитору не проходит 5+ минут: Kuma, WG-выход predator и E2E-туннель недоступны. Kuma о своей смерти не сообщит, поэтому этот алерт — единственный внешний наблюдатель за монитором."
+
+      - alert: BotCrmOutboxPendingHigh
+        expr: bot_crm_outbox_pending{job="botkit"} > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CRM outbox pending high on {{ $labels.instance }}"
+          description: "bot_crm_outbox_pending = {{ $value }} на {{ $labels.instance }} более 5 минут. Лиды не доставляются в CRM."
+
+      - alert: BotCrmOutboxPendingCritical
+        expr: bot_crm_outbox_pending{job="botkit"} > 500
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRM outbox pending critical on {{ $labels.instance }}"
+          description: "bot_crm_outbox_pending = {{ $value }} на {{ $labels.instance }} более 5 минут. Критическое накопление неотправленных лидов."
 
       - alert: BotErrorSpike
         expr: sum by (instance) (rate(botkit_errors_total{job="botkit"}[5m])) > 0.5

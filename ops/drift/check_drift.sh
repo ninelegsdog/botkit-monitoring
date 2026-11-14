@@ -194,11 +194,41 @@ for entry in $BOTS; do
   # --- HEAD vs origin/main (tracking) ---
   if ! fetch_clone "$d" 2>>"$LOG"; then
     track+=("git fetch failed")
+    # Не оставлять значения предыдущего бота: при неудачном fetch `head` и `origin`
+    # оставались от прошлой итерации, и тег следующего бота сравнивался с веткой
+    # чужого репозитория.
+    head=""
+    origin=""
   else
     head=$(git -c safe.directory="$d" -C "$d" rev-parse HEAD 2>/dev/null)
     origin=$(git -c safe.directory="$d" -C "$d" rev-parse origin/main 2>/dev/null)
     if [ -n "$head" ] && [ -n "$origin" ] && [ "$head" != "$origin" ]; then
-      track+=("HEAD ${head:0:7} != origin/main ${origin:0:7}")
+      # Отставание чекаута — дрейф только тогда, когда пропущенные коммиты заставили бы
+      # deploy.yml собрать образ. Коммиты под paths-ignore сборку не запускают, поэтому
+      # никакой rollout этот чекаут не догонит: 14.11 bookingbot сутки отставал на
+      # .github/CODEOWNERS и .github/dependabot.yml, а сравнение образов в том же прогоне
+      # печатало "docs, tests and CI only" — две строки одного лога спорили об одном
+      # репозитории. Устарел ли работающий код, решает сравнение образов ниже; эта строка
+      # отвечает только за содержимое чекаута.
+      ignore=()
+      while IFS= read -r pat; do
+        [ -n "$pat" ] && ignore+=("$pat")
+      done < <(deploy_ignore_patterns "$d/.github/workflows/deploy.yml")
+      lag=""
+      while IFS= read -r changed; do
+        [ -n "$changed" ] || continue
+        skip=0
+        for pat in ${ignore[@]+"${ignore[@]}"}; do
+          # shellcheck disable=SC2053 # glob-шаблон paths-ignore, а не литерал
+          if [[ "$changed" == $pat ]]; then skip=1; break; fi
+        done
+        [ "$skip" = 1 ] || { lag="$changed"; break; }
+      done < <(git -c safe.directory="$d" -C "$d" diff --name-only "$head..$origin" 2>/dev/null)
+      if [ -n "$lag" ]; then
+        track+=("HEAD ${head:0:7} != origin/main ${origin:0:7} (unbuilt path: $lag)")
+      else
+        log "TRACK OK $bot (checkout ${head:0:7} trails origin/main ${origin:0:7} on paths-ignore only)"
+      fi
     elif [ -z "$origin" ]; then
       track+=("origin/main unresolvable")
     fi
@@ -240,6 +270,14 @@ for entry in $BOTS; do
     # fails on the old pattern, because a check that cannot fire looks identical to a
     # check that has nothing to report.
     imgsha=$(echo "$img" | sed -n "s#.*:$CHANNEL-\([0-9a-f]\{7\}\).*#\1#p")
+    if [ -z "$imgsha" ]; then
+      # A tag from another channel still ends in a build sha. Reading it keeps the
+      # staleness comparison alive for an off-channel bot instead of replacing it with
+      # a less useful message: "not on channel" is already tracked above, and a bot
+      # parked on an old channel is exactly where staleness matters most. Anchored at
+      # the end of the tag so a sha inside a repository name cannot match.
+      imgsha=$(echo "$img" | sed -n "s#.*-\([0-9a-f]\{7\}\)\$#\1#p")
+    fi
     if [ -z "$imgsha" ]; then
       track+=("cannot read the build sha from the image tag: $img")
     elif [ "$imgsha" != "${origin:0:7}" ]; then

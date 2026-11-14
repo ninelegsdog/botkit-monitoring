@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Docker image history is now bounded by policy instead of by hand. Nothing removed an
+  image before: every merge builds an immutable tag, the rollout pulls it, and the
+  previous one stayed forever. On 14.11 the host carried 375 images for nine bots — about
+  40 per repository, 47.8 GB on a 119 GB disk — and the only reclamation that had ever
+  happened was a manual `docker system prune`. `ops/rollout/prune_images.sh` keeps the
+  newest ten tags per repository (`BOTKIT_KEEP_IMAGES`) plus the image the container is
+  actually running, because that is the only rollback target `deploy_rollout.sh` has; a
+  tag older than the window is still kept when it is the running one. Removal is by tag
+  reference, not image id, so a tag held by a stopped container is refused, logged and
+  retried next run rather than failing the unit. A weekly
+  `botkit-image-prune.timer` runs it, and `BotkitImagePruneStale` fires on an absent or
+  eight-day-old metric — the same `absent()` shape that hid the healthcheck and rollout
+  textfiles, so the script chmods its textfile 644 for the unprivileged collector.
+
+- The monitoring VPS itself is watched from prod. Prometheus probes
+  `31.76.11.198:22` through blackbox (`blackbox-monitor`) and `MonitorVPSDown`
+  fires after 5 minutes: Kuma cannot report its own death, so on 13.11 the
+  monitor stayed powered off for 17 h 45 min and nothing alerted. TCP/22 is the
+  cheapest liveness signal - 443 stays closed on purpose (loopback-only), and
+  prod sits on another host and another provider (NL vs DE).
+
 - The BOTKIT_BACKLOG replica reports its own state, in both directions.
   `ops/backlog/replicate.sh` finishes every run with a `heartbeat.json` (age,
   `ok`, mount/device verdicts, snapshot counters, bucket size) and pushes a copy
@@ -60,6 +81,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate fails instead, and its negative test reproduces the hardcoded pair.
 
 ### Fixed
+
+- The E2E runner clone was never updated after provisioning. host-setup.sh cloned
+  /opt/botkit-e2e once and nothing fetched it again, so the runner executed the
+  commit from the day the host was provisioned. On 14.11 that was b10d1e8 from
+  15.10 — 24 commits behind origin/main, including every E2E fix merged since,
+  so the two chronic failures (BotNotAnswering on membership, UnexpectedReply on
+  reminder) were reported on code that no longer existed in the repository. A
+  new root-owned oneshot `botkit-e2e-sync.service` now runs
+  `ops/e2e/scripts/sync-runner-clone.sh` before every run: fetch, reset --hard,
+  restore the clone's 0750/o-rwx policy, reinstall the venv when
+  requirements.txt changed, and fail loudly on a fetch error. `botkit-e2e.service`
+  now Requires= and After= it, so a runner that cannot be updated does not report
+  on code that is not canon. host-setup.sh installs the unit and syncs an
+  existing clone when re-run.
+
+- Two E2E scenarios asserted only the empty state of a view that depends on account state,
+  so every run since 12.11 was red with `BotNotAnswering` (membership) and
+  `UnexpectedReply` (reminder) and paged Telegram for two healthy bots. `mem:my` edits to
+  either "У вас нет активной подписки." or the "👤 Подписка: <plan>" card, and the reminder
+  list answers "Нет напоминаний" or one `#<id> … — <text>` line per reminder. Both steps
+  now use `expect_any`, the form `scenarios.yml` already documents for exactly this case,
+  and a test pins the two views so they cannot drift back to a single branch.
+
+- The self-re-exec guard in `sync-canon.sh` now actually fires. It hashed the running
+  script's *path* after `git reset --hard`, and by then that path is the synced file — so
+  the two hashes were always equal and the guard was a no-op. That is why the
+  Prometheus-reload step and the unit-install step each appeared only on the second sync
+  after their merge: the run that installed them finished as the old bytes and printed
+  `SYNC OK`. The hash is now taken at the top of the script, before anything can replace
+  the file, and the regression test is the exact shape of the defect — one path rewritten
+  in place between the hash and the call.
+
+- The sync now installs and verifies the systemd units the host runs. It kept every script
+  equal to canon and never looked at `/etc/systemd/system`: on 14.11 the installed
+  `botkit-rollout-check.service` still had a `ReadWritePaths` list from before the textfile
+  metric existed, so the poller checked all nine bots and then died on
+  `mktemp: Read-only file system` while publishing its verdict. `BotkitRolloutCheckStale`
+  fires on `absent(...)`, which reads exactly like a dead poller, so the unit was broken in
+  the one way its own alert could not describe. `ops/lib/install-units.sh` takes its scope
+  from `ops/lib/managed-units.txt` — not a glob, because canon also ships `botkit-e2e.*` for
+  an unprivileged runner this host does not have yet — backs up and installs what differs,
+  reloads once, restarts changed active timers, and re-compares; a unit that does not land
+  fails the sync. `--check` reports the same drift without touching the host.
+  `check-backs.service` in canon now names the repo path directly instead of the
+  `/root/check_backups.sh` symlink the host had already moved past.
+
+- `sync-canon.sh` now re-executes the copy it just synced when the commit changed
+  `sync-canon.sh` itself. Bash reads a script incrementally from its file, and step 3
+  replaces that file: on 14.11 the Prometheus-reload step was merged, `SYNC OK` was
+  printed, and the step never ran — the running process finished the old bytes while the
+  clone held the new code, so a gate was skipped on the very sync that installed it. The
+  helper (`ops/lib/reexec-if-changed.sh`) compares hashes, execs the synced copy with the
+  same arguments, and disables itself in the child via `SYNC_CANON_REEXEC` so it cannot
+  loop.
+
+- `sync-canon.sh` now proves the running Prometheus loaded the canon rules. Prometheus
+  does not watch its rule files: on 14.11 `BotkitImagePruneStale` was merged, synced and
+  marked present in the clone while `/api/v1/rules` still listed the previous 40 rules —
+  the new check did not exist on the host and every gate said the sync was fine. The sync
+  now sends SIGHUP (the container runs without `--web.enable-lifecycle`) and verifies
+  every alert name from `prometheus/alerts.yml` is present, rather than a marker for the
+  rule that happened to be added last. In `--check-only`, or on a host without the
+  container, the step is skipped.
+
+- The healthcheck and rollout poller now publish their textfiles mode 644, and the
+  healthcheck publishes them once. `mktemp` under root's umask creates 600, and
+  node-exporter runs unprivileged inside its container, so the metrics were absent rather
+  than stale — and the alerts guarding them are `absent(...) or ...`, which fires on
+  absence. On 14.11 both `BotkitHealthcheckStale` and `BotkitRolloutCheckStale` were
+  critical for a day while both units ran on schedule and wrote their files. The
+  healthcheck also carried the same publish block twice, which is how a fix to one copy
+  would have left the other writing the old mode; the duplicate is gone and a contract
+  test fails if it returns.
+
+- A checkout that trails `origin/main` only on `paths-ignore` paths is no longer drift.
+  `deploy.yml` never builds an image for those commits, so no rollout can ever sync the
+  checkout: on 14.11 `bookingbot` sat a day behind on `.github/CODEOWNERS` and
+  `.github/dependabot.yml` while the image comparison in the same run printed "docs, tests
+  and CI only" — two lines of one log disagreeing about the same repository, and the red
+  unit made the whole fleet look broken. The lag is now filtered through the same
+  `paths-ignore` list the image comparison reads, and a missing file that would reach the
+  image is still reported. A failed `git fetch` now clears `head`/`origin` instead of
+  leaving the previous bot's values for the image comparison.
+
+- A webhook delivery error no longer paints a bot red forever. Telegram keeps
+  `last_error_message` until an update is delivered successfully, so the timeout recorded
+  while the host was down outlives the outage: on 14.11 `support` and `leadgen` failed C5
+  for a day on errors recorded at 13.11 08:58, with `pending_update_count=0` and the
+  endpoint answering. C5 is now critical only while the error is recent
+  (`LAST_ERROR_MAX_AGE_S`, one hour) or an update is actually queued; a stale record is
+  named in the OK line instead of being silently dropped.
 
 - A press step in the live E2E could not fail on content, and the verdict of a
   failed run could not be read without a database and the bot's source. The wait

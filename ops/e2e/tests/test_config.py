@@ -90,6 +90,33 @@ def test_load_scenarios_press_step(tmp_path):
     assert st.expect == "Нет активных записей"
 
 
+def test_load_scenarios_expect_any(tmp_path):
+    """Both the empty-state and the list reply are correct for a state-dependent view."""
+    p = tmp_path / "sc.yaml"
+    p.write_text(
+        "bookingbot:\n  steps:\n    - send: Мои покупки\n"
+        "      expect_any:\n        - Нет покупок\n        - 'Заказ #'\n"
+    )
+    st = load_scenarios(p)["bookingbot"].steps[0]
+    assert st.expect == ""
+    assert st.expect_any == ("Нет покупок", "Заказ #")
+
+
+def test_load_scenarios_rejects_expect_and_expect_any_together(tmp_path):
+    """Two lists would leave the runner guessing which one is authoritative."""
+    p = tmp_path / "sc.yaml"
+    p.write_text("b:\n  steps:\n    - send: /start\n      expect: x\n      expect_any: [y]\n")
+    with pytest.raises(ValueError, match="exactly one"):
+        load_scenarios(p)
+
+
+def test_load_scenarios_rejects_expect_any_that_is_not_a_list(tmp_path):
+    p = tmp_path / "sc.yaml"
+    p.write_text("b:\n  steps:\n    - send: /start\n      expect_any: Нет покупок\n")
+    with pytest.raises(ValueError, match="must be a list"):
+        load_scenarios(p)
+
+
 def test_load_scenarios_rejects_send_and_press_together(tmp_path):
     p = tmp_path / "sc.yaml"
     p.write_text("b:\n  steps:\n    - send: /start\n      press: book:my\n      expect: x\n")

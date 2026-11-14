@@ -28,6 +28,10 @@ CRITICAL = "critical"
 WARNING = "warning"
 
 PENDING_CRITICAL = 5
+# How long a recorded delivery error stays "current" when nothing is queued. Telegram keeps
+# last_error_message until an update is delivered successfully, so after a host outage the
+# error outlives the outage by however long nobody writes to the bot.
+LAST_ERROR_MAX_AGE_S = 3600
 FAULTS = ("none", "bad_url", "custom_cert", "stale_error", "pending", "not_ok", "bad_ip")
 
 _MUTATIONS: dict[str, Callable[[WebhookInfo], WebhookInfo]] = {
@@ -128,6 +132,29 @@ def apply_fault(info: WebhookInfo, fault: str) -> WebhookInfo:
     return _MUTATIONS[fault](info)
 
 
+def last_error_is_stale(info: WebhookInfo, now: int | None) -> bool:
+    """True when the recorded error cannot describe a current delivery failure.
+
+    Telegram keeps ``last_error_message`` until an update is delivered successfully. After the
+    host is unreachable - a reboot, the 26-minute TTM hang, a certificate swap - it records one
+    timeout and then keeps it for as long as nobody writes to the bot. On 14.11 support and
+    leadgen were red for a day on errors recorded at 08:58 on 13.11, seconds after the host came
+    back: pending_update_count was 0 and the endpoint answered.
+
+    A stale error is one older than LAST_ERROR_MAX_AGE_S with nothing queued. Any pending update
+    means Telegram is trying to deliver right now, so the error is current regardless of age.
+    Without ``now`` the verdict stays conservative (not stale) - a caller that cannot tell the
+    time must not be allowed to clear a real failure.
+    """
+    if not info.last_error_message:
+        return False
+    if info.pending_update_count > 0:
+        return False
+    if info.last_error_date is None or now is None:
+        return False
+    return now - info.last_error_date > LAST_ERROR_MAX_AGE_S
+
+
 def evaluate(
     info: WebhookInfo,
     *,
@@ -136,6 +163,7 @@ def evaluate(
     secret_configured: bool = True,
     prev_pending: int | None = None,
     quick: bool = False,
+    now: int | None = None,
 ) -> list[Failure]:
     """Turn one getWebhookInfo snapshot into a list of failures (empty = healthy)."""
     failures: list[Failure] = []
@@ -165,7 +193,7 @@ def evaluate(
             Failure("C4", CRITICAL, "TELEGRAM_WEBHOOK_SECRET missing/empty — a re-registration would drop the secret")
         )
 
-    if info.last_error_message:
+    if info.last_error_message and not last_error_is_stale(info, now):
         failures.append(
             Failure("C5", CRITICAL, f"last_error_message={info.last_error_message!r} (at {info.last_error_date})")
         )

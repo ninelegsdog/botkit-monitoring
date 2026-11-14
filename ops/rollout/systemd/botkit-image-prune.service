@@ -1,0 +1,30 @@
+[Unit]
+Description=Botkit image retention: keep running image + N newest tags per bot
+Documentation=file:///home/deploy/botkit-monitoring/ops/rollout/prune_images.sh
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Runs out of the synced canon like every other unit, so review and the drift check
+# see the same code that systemd executes. bash is named explicitly: repository
+# files are not marked executable.
+ExecStart=/usr/bin/bash /home/deploy/botkit-monitoring/ops/rollout/prune_images.sh
+TimeoutStartSec=1800
+# Deletion happens through the docker socket, which is root-equivalence by design.
+# These settings bound accidents: the daemon storage, the log and the textfile are
+# writable, everything else - /etc, /usr, the canon checkout - is not.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+UMask=0077
+ReadWritePaths=/var/lib/docker /var/log /var/lib/node-exporter-textfile
+ReadOnlyPaths=/home/deploy

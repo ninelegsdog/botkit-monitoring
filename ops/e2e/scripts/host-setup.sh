@@ -49,6 +49,10 @@ if [ ! -d "$CLONE/.git" ]; then
   echo "  cloned $REPO_URL"
 else
   echo "  already present at $CLONE"
+  # A clone that nothing fetches runs month-old scenarios. Re-running host-setup
+  # is also the way to bring an existing host current, so do it here rather than
+  # asking the operator to learn a second command.
+  run bash "$CLONE/ops/e2e/scripts/sync-runner-clone.sh"
 fi
 run chown -R "root:$RUNNER_USER" "$CLONE"
 run chmod 0750 "$CLONE"
@@ -110,6 +114,7 @@ echo
 echo "== 6. units: installed but not armed =="
 run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e.service" /etc/systemd/system/botkit-e2e.service
 run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e.timer" /etc/systemd/system/botkit-e2e.timer
+run install -m 0644 "$CLONE/ops/e2e/systemd/botkit-e2e-sync.service" /etc/systemd/system/botkit-e2e-sync.service
 # The tunnel watchdog is independent of the runner and safe to arm now: with no
 # tunnel unit present it finds nothing to revive and exits clean (see
 # scripts/tunnel-watchdog.sh). It exists because Restart=always cannot clear a
