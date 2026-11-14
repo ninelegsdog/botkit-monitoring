@@ -100,6 +100,21 @@ else
   echo "WARN $alerts active alerts"
 fi
 
+# 7. Disk health (SMART)
+echo "--- disk health ---"
+if command -v smartctl >/dev/null 2>&1; then
+  for dev in /dev/sda /dev/sdb; do
+    [ -b "$dev" ] || continue
+    if sudo smartctl -H "$dev" 2>/dev/null | grep -q "PASSED"; then
+      echo "OK   SMART $dev: PASSED"
+    else
+      echo "WARN SMART $dev: not PASSED or not supported"
+    fi
+  done
+else
+  echo "SKIP smartctl (not installed)"
+fi
+
 echo "=== host-check: $FAIL failures ==="
 exit $FAIL
 PY

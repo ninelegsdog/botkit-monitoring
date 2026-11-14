@@ -5,13 +5,25 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      pip-runtime:
+        patterns: ["*"]
+        exclude-patterns: ["python"]
+
   - package-ecosystem: pip
     directory: /ops/e2e
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      e2e-deps:
+        patterns: ["*"]
