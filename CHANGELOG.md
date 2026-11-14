@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The monitoring VPS itself is watched from prod. Prometheus probes
+  `31.76.11.198:22` through blackbox (`blackbox-monitor`) and `MonitorVPSDown`
+  fires after 5 minutes: Kuma cannot report its own death, so on 13.11 the
+  monitor stayed powered off for 17 h 45 min and nothing alerted. TCP/22 is the
+  cheapest liveness signal - 443 stays closed on purpose (loopback-only), and
+  prod sits on another host and another provider (NL vs DE).
+
 - The BOTKIT_BACKLOG replica reports its own state, in both directions.
   `ops/backlog/replicate.sh` finishes every run with a `heartbeat.json` (age,
   `ok`, mount/device verdicts, snapshot counters, bucket size) and pushes a copy
