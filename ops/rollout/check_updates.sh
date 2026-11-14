@@ -155,8 +155,13 @@ done
 # Publish self freshness + last verdict for the BotkitRolloutCheckStale alert.
 # The exit code already fails the unit on real failures; the metric makes the tick
 # itself observable (dead unit, masked timer, stuck script) the same way drift does.
+#
+# chmod 644 for the same reason as in healthcheck.sh: mktemp gives 600 under root's
+# umask, node-exporter runs unprivileged and cannot read it, and the alert on the
+# missing metric (`absent(...)`) then reports a dead poller that is in fact running.
 rollout_out=$(mktemp "${HEALTH_CHECK_TEXTFILE}.XXXXXX") && {
   printf 'botkit_rollout_check_last_run_seconds %s\nbotkit_rollout_check_state %s\n' "$(date +%s)" "$rc_global" > "$rollout_out"
+  chmod 644 "$rollout_out"
   mv -f "$rollout_out" "$HEALTH_CHECK_TEXTFILE"
 }
 
