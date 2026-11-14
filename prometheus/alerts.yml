@@ -12,6 +12,15 @@ groups:
           summary: "Healthcheck не обновляет метрики"
           description: "botkit_healthcheck_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-healthcheck.timer; journalctl -u botkit-healthcheck; ls -l /var/lib/node-exporter-textfile/botkit_healthcheck.prom; systemctl show botkit-healthcheck -p ReadWritePaths"
 
+      - alert: BotkitHealthcheckFailed
+        expr: botkit_healthcheck_ok == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Healthcheck завершился с ошибкой"
+          description: "Поллер запустился, но проверка не прошла (ok=0). Проверить: journalctl -u botkit-healthcheck; /var/log/botkit-healthcheck.log"
+
       - alert: BotkitRolloutCheckStale
         expr: |
           absent(botkit_rollout_check_last_run_seconds)
@@ -22,6 +31,15 @@ groups:
         annotations:
           summary: "Проверка раскатки не обновляет метрики"
           description: "botkit_rollout_check_last_run_seconds не меняется больше 15 минут (3 цикла по 5) или отсутствует совсем. Проверить: systemctl status botkit-rollout-check.timer; journalctl -u botkit-rollout-check; ls -l /var/lib/node-exporter-textfile/botkit_rollout_check.prom; systemctl show botkit-rollout-check -p ReadWritePaths"
+
+      - alert: BotkitRolloutCheckFailed
+        expr: botkit_rollout_check_state == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Раскатка отключена или не работает"
+          description: "Поллер запустился, но state=0 (таймер выключен или юнит отсутствует). Проверить: systemctl status botkit-rollout-check.timer; systemctl is-enabled botkit-rollout-check.timer"
 
       - alert: BotkitImagePruneStale
         # Nothing removed an image until 14.11: 375 images for nine bots, 47.8 GB on a
@@ -38,6 +56,15 @@ groups:
         annotations:
           summary: "Ретенция docker-образов не запускалась больше 8 суток"
           description: "Еженедельный prune не обновляет метрику: таймер выключен, юнит падает до записи или textfile не читается node-exporter'ом. Образы копятся молча — проверить: systemctl status botkit-image-prune.timer; journalctl -u botkit-image-prune; ls -l /var/lib/node-exporter-textfile/botkit_image_prune.prom"
+
+      - alert: BotkitImagePruneFailed
+        expr: botkit_image_prune_ok == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ретенция docker-образов завершилась с ошибками"
+          description: "Prune запустился, но не смог удалить некоторые теги (ok=0). Проверить: journalctl -u botkit-image-prune; docker system df"
 
       - alert: BotDown
         expr: up{job="botkit"} == 0
