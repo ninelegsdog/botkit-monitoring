@@ -51,7 +51,7 @@ trap 'rm -f "$count_metrics"' EXIT
 
 prune_repo() {
   local bot="$1" repo="$2" running="$3"
-  local tag created kept=0 removed=0 failed=0
+  local tag kept=0 removed=0 failed=0
   local -a order=()
 
   # Newest first. CreatedAt is "YYYY-MM-DD HH:MM:SS +0000 UTC", so fields 2 and 3
