@@ -493,15 +493,18 @@ groups:
           runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/tree/main/docs/runbooks"
 
       - alert: BotkitBackupVerifyStale
-        expr: |
-          absent(botkit_backup_verify_last_run_seconds)
-          or (time() - botkit_backup_verify_last_run_seconds > 86400)
-        for: 30m
+        # Таймер квартальный (1-е число раз в 3 месяца), поэтому сутки здесь — это
+        # постоянный false positive: метрика появляется только после первого прогона
+        # и обновляется раз в квартал. Порог 100 дней = квартал + запас на сдвиг.
+        # absent() намеренно нет: до первого прогона метрики нет по расписанию, а
+        # «юнит не установлен» ловит host-check (unit parity) и *Failed на прогоне.
+        expr: time() - botkit_backup_verify_last_run_seconds > 8640000
+        for: 1h
         labels:
           severity: warning
         annotations:
-          summary: "Глубокая проверка бэкапов не запускалась больше суток"
-          description: "botkit_backup_verify_last_run_seconds не обновляется — таймер botkit-restic-verify.timer не работает или юнит падает до записи. Проверить: systemctl status botkit-restic-verify.timer; journalctl -u botkit-restic-verify"
+          summary: "Глубокая проверка бэкапов не запускалась больше 100 дней"
+          description: "botkit_backup_verify_last_run_seconds старше квартала: таймер botkit-restic-verify.timer пропустил плановый прогон или юнит падает до записи метрики. Проверить: systemctl status botkit-restic-verify.timer; journalctl -u botkit-restic-verify"
           runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/backup-verify.md"
 
       - alert: BotkitBackupVerifyFailed

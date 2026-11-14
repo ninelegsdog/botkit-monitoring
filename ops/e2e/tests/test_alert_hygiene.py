@@ -68,7 +68,7 @@ def test_stale_alerts_detect_a_missing_metric_or_a_stale_one() -> None:
         expr = str(rule.get("expr", ""))
         # Two legitimate shapes: the metric is missing (poller never wrote it), or the
         # metric reports an age that crossed a bound (the poller ran, the work did not).
-        if "absent(" in expr or "_age_seconds" in expr:
+        if "absent(" in expr or "_age_seconds" in expr or "_last_run_seconds" in expr:
             continue
         bad.append(f"{rule['alert']}: {expr.strip()}")
     assert not bad, "Stale alerts without absent() or an age bound:\n  " + "\n  ".join(bad)
