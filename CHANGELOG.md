@@ -82,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `sync-canon.sh` now proves the running Prometheus loaded the canon rules. Prometheus
+  does not watch its rule files: on 14.11 `BotkitImagePruneStale` was merged, synced and
+  marked present in the clone while `/api/v1/rules` still listed the previous 40 rules —
+  the new check did not exist on the host and every gate said the sync was fine. The sync
+  now sends SIGHUP (the container runs without `--web.enable-lifecycle`) and verifies
+  every alert name from `prometheus/alerts.yml` is present, rather than a marker for the
+  rule that happened to be added last. In `--check-only`, or on a host without the
+  container, the step is skipped.
+
 - The healthcheck and rollout poller now publish their textfiles mode 644, and the
   healthcheck publishes them once. `mktemp` under root's umask creates 600, and
   node-exporter runs unprivileged inside its container, so the metrics were absent rather
