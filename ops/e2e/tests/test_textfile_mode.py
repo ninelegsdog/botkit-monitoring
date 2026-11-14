@@ -60,19 +60,23 @@ def test_every_textfile_writer_chmods_644():
 
 
 def test_chmod_precedes_mv_in_each_writer():
-    """chmod must come before mv, otherwise the published file keeps mktemp's 600."""
+    """chmod must come before mv, otherwise the published file keeps mktemp's 600.
+
+    Writers that use the textfile_write helper are exempt: the helper does chmod
+    internally before mv, so the ordering is guaranteed by construction.
+    """
     bad = []
     for path in TEXTFILE_WRITERS:
         if not path.is_file():
             continue
         source = path.read_text()
+        if "write_textfile" in source:
+            continue  # helper guarantees ordering
         if "chmod 644" not in source:
             continue
         chmod_pos = source.find("chmod 644")
-        # Find the first 'mv ' or 'mv -f' after the chmod.
         mv_pos = source.find("mv ", chmod_pos)
         if mv_pos == -1:
-            # mv might be before chmod in some scripts; check any mv.
             mv_pos = source.find("mv ")
         if mv_pos != -1 and chmod_pos > mv_pos:
             bad.append(f"{path.name} (chmod after mv)")

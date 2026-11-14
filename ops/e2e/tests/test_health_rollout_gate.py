@@ -141,8 +141,8 @@ def test_healthcheck_textfile_is_readable_by_the_collector(run_health: RunHealth
 def test_healthcheck_has_a_single_publish_block() -> None:
     """Two copies of the same block is how the chmod fix would reach only one of them."""
     source = HEALTH_SH.read_text()
-    assert source.count('mv -f "$health_out" "$HEALTH_TEXTFILE"') == 1, (
-        "the self-staleness publish block is duplicated"
+    assert source.count('write_textfile "$HEALTH_TEXTFILE"') == 1, (
+        "the self-staleness publish block is duplicated or missing"
     )
 
 
