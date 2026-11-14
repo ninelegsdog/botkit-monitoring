@@ -201,4 +201,20 @@ if [ "$CHECK_ONLY" != 1 ] && command -v docker >/dev/null 2>&1 \
   echo "  ok: running Prometheus loaded every alert from canon"
 fi
 
+echo "=== 7. installed systemd units must match the canon ==="
+# Steps 1-6 keep the clone and the webhook bundle equal to canon. The unit files were the one
+# part of the host that nothing compared: on 14.11 the installed botkit-rollout-check.service
+# still had a ReadWritePaths list from before the textfile metric existed, so the poller did
+# its work and then died on `mktemp: Read-only file system`. The alert guarding it is
+# `absent(...)`, which fires identically for a dead poller — so the unit was broken in the
+# one way its own alert could not describe.
+#
+# Scope is the manifest, not a glob (see ops/lib/managed-units.txt): canon also ships units
+# for a host and a runner that do not exist here, and installing those would break what
+# works. The script verifies, backs up, installs, reloads and re-compares; a unit that does
+# not land is a failed sync, not a warning.
+if [ "$CHECK_ONLY" != 1 ] && [ -r "$REPO/ops/lib/install-units.sh" ]; then
+  bash "$REPO/ops/lib/install-units.sh"
+fi
+
 echo "SYNC OK $head_sha"

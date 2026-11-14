@@ -82,6 +82,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The sync now installs and verifies the systemd units the host runs. It kept every script
+  equal to canon and never looked at `/etc/systemd/system`: on 14.11 the installed
+  `botkit-rollout-check.service` still had a `ReadWritePaths` list from before the textfile
+  metric existed, so the poller checked all nine bots and then died on
+  `mktemp: Read-only file system` while publishing its verdict. `BotkitRolloutCheckStale`
+  fires on `absent(...)`, which reads exactly like a dead poller, so the unit was broken in
+  the one way its own alert could not describe. `ops/lib/install-units.sh` takes its scope
+  from `ops/lib/managed-units.txt` — not a glob, because canon also ships `botkit-e2e.*` for
+  an unprivileged runner this host does not have yet — backs up and installs what differs,
+  reloads once, restarts changed active timers, and re-compares; a unit that does not land
+  fails the sync. `--check` reports the same drift without touching the host.
+  `check-backs.service` in canon now names the repo path directly instead of the
+  `/root/check_backups.sh` symlink the host had already moved past.
+
 - `sync-canon.sh` now re-executes the copy it just synced when the commit changed
   `sync-canon.sh` itself. Bash reads a script incrementally from its file, and step 3
   replaces that file: on 14.11 the Prometheus-reload step was merged, `SYNC OK` was
