@@ -93,19 +93,9 @@ jobs:
       - name: shell syntax
         run: |
           find ops -name '*.sh' -print0 | xargs -0 -n1 bash -n
-      - name: textfile writers chmod 644
-        # Every writer into node-exporter-textfile must chmod 644 before mv:
-        # node-exporter runs unprivileged and a 600 file is invisible to it,
-        # which makes the guarding absent() alerts fire on a running poller.
-        run: |
-          bad=0
-          for f in $(grep -rl "node-exporter-textfile" ops --include="*.sh"); do
-            if ! grep -q "chmod 644" "$f"; then
-              echo "MISSING chmod 644: $f"; bad=1
-            fi
-          done
-          if [ "$bad" -ne 0 ]; then exit 1; fi
-          echo "OK: all textfile writers chmod 644"
+      # The 644 rule is enforced by ops/e2e/tests/test_textfile_mode.py, which
+      # classifies publishers vs readers. A grep for the directory path flagged
+      # host-check.sh and check_backups.sh, which only read it.
       - name: host-check script syntax
         # host-check.sh runs on the host (not in CI), but its syntax must be valid.
         run: |

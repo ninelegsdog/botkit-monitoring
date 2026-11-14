@@ -22,8 +22,6 @@ MAX_BACKUP_AGE="${MAX_BACKUP_AGE:-25200}"
 MAX_EXPORT_AGE="${MAX_EXPORT_AGE:-25200}"
 HEALTH_TEXTFILE="${BOTKIT_HEALTH_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_healthcheck.prom}"
 MAX_HEALTH_AGE="${MAX_HEALTH_AGE:-900}"
-HEALTH_TEXTFILE="${BOTKIT_HEALTH_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_healthcheck.prom}"
-MAX_HEALTH_AGE="${MAX_HEALTH_AGE:-900}"
 
 SERVICES=(
   "prometheus|http://127.0.0.1:9090/-/healthy"
