@@ -58,6 +58,29 @@ def test_a_matching_reply_passes():
     assert verdicts[0].reason == run_e2e.ALL_GOOD
 
 
+def _step_any(*options: str):
+    return SimpleNamespace(send="/start", press="", expect="", expect_any=options)
+
+
+def test_any_accepted_reply_passes():
+    """A state-dependent view may answer with either the empty state or the list."""
+    step = _step_any("Нет покупок", "📦 Заказ #")
+    for actual in ("Нет покупок.", "📦 Заказ #12\nТовар: кофе"):
+        verdicts = judge_scenario(_scenario(step), [StepResult(kind=KIND_REPLY, actual=actual)])
+        assert verdicts[0].ok is True, actual
+
+
+def test_a_reply_outside_every_accepted_option_fails_and_shows_all_options():
+    """The relaxed list must still be able to fail - otherwise it is not a check."""
+    verdicts = judge_scenario(
+        _scenario(_step_any("Нет покупок", "📦 Заказ #")),
+        [StepResult(kind=KIND_REPLY, actual="Команда не найдена")],
+    )
+    assert verdicts[0].ok is False
+    assert verdicts[0].reason == run_e2e.UNEXPECTED_REPLY
+    assert verdicts[0].expected == "Нет покупок | 📦 Заказ #"
+
+
 def test_a_reply_with_other_text_fails_and_shows_both_sides():
     """The bot answered, but not what was expected. Both texts must be there.
 

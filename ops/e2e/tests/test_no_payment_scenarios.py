@@ -50,14 +50,23 @@ def test_no_scenario_sends_a_payment_command(scenarios):
     assert not offenders, "payment commands are forbidden in E2E scenarios:\n" + "\n".join(offenders)
 
 
+def _accepted_texts(step: dict) -> list[str]:
+    """Every reply the step accepts, from `expect` or from `expect_any`."""
+    any_list = step.get("expect_any") or []
+    if isinstance(any_list, str):
+        any_list = [any_list]
+    return [str(step.get("expect", ""))] + [str(x) for x in any_list]
+
+
 def test_no_scenario_expects_a_payment_prompt(scenarios):
     offenders = []
     for bot, cfg in scenarios.items():
         for i, step in enumerate(cfg.get("steps", []), start=1):
-            low = str(step.get("expect", "")).lower()
-            hit = [m for m in PAYMENT_MARKERS if m in low]
-            if hit:
-                offenders.append(f"{bot} step {i}: expect={step.get('expect')!r} matches {hit}")
+            for text in _accepted_texts(step):
+                low = text.lower()
+                hit = [m for m in PAYMENT_MARKERS if m in low]
+                if hit:
+                    offenders.append(f"{bot} step {i}: expect={text!r} matches {hit}")
     assert not offenders, "payment prompts must not be expected in E2E scenarios:\n" + "\n".join(offenders)
 
 
@@ -66,6 +75,7 @@ def test_every_step_has_send_or_press_and_expect(scenarios):
 
     A step must also do exactly one action: `send` a message or `press` an inline
     button. Both or neither is a config error the runner would trip on at runtime.
+    `expect_any` counts as an expectation: it lists replies that are all correct.
     """
     bad = []
     for bot, cfg in scenarios.items():
@@ -74,9 +84,13 @@ def test_every_step_has_send_or_press_and_expect(scenarios):
             has_press = bool(str(step.get("press", "")).strip())
             if has_send == has_press:
                 bad.append(f"{bot} step {i}: needs exactly one of send/press, got {step!r}")
-            if not str(step.get("expect", "")).strip():
-                bad.append(f"{bot} step {i}: empty expect")
-    assert not bad, "steps need exactly one of send/press and an expect:\n" + "\n".join(bad)
+            has_expect = bool(str(step.get("expect", "")).strip())
+            has_expect_any = bool(step.get("expect_any") or [])
+            if has_expect == has_expect_any:
+                bad.append(
+                    f"{bot} step {i}: needs exactly one of expect/expect_any, got {step!r}"
+                )
+    assert not bad, "steps need exactly one of send/press and one expectation:\n" + "\n".join(bad)
 
 
 def test_the_gate_actually_catches_a_payment_step(scenarios):

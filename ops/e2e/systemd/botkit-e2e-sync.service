@@ -1,0 +1,20 @@
+[Unit]
+Description=Botkit E2E: bring the runner clone to origin/main before it is read
+Documentation=file:///opt/botkit-e2e/README.md
+After=network-online.target
+Wants=network-online.target
+# A clone that nothing fetches runs the code from the day the host was provisioned. On
+# 14.11 the runner was 24 commits behind origin/main: the two chronic E2E failures had
+# already been fixed in canon, and the fix could not reach the runner, so Telegram was
+# paged every six hours for a defect that no longer existed in the repository.
+
+[Service]
+Type=oneshot
+# Root on purpose: the clone is root-owned 0750 so the unprivileged runner cannot rewrite
+# the code it is about to execute. Updating it therefore needs root - which is also why
+# this is a separate unit rather than an ExecStartPre of botkit-e2e.service: User= applies
+# to ExecStartPre as well, so the runner would have to own its own code to update it.
+ExecStart=/opt/botkit-e2e/ops/e2e/scripts/sync-runner-clone.sh
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal

@@ -18,6 +18,10 @@ DRIFT_UNIT="botkit-drift.service"
 # Backup cadence is 6h; 7h leaves one missed run before the check goes red.
 MAX_BACKUP_AGE="${MAX_BACKUP_AGE:-25200}"
 MAX_EXPORT_AGE="${MAX_EXPORT_AGE:-25200}"
+HEALTH_TEXTFILE="${BOTKIT_HEALTH_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_healthcheck.prom}"
+MAX_HEALTH_AGE="${MAX_HEALTH_AGE:-900}"
+HEALTH_TEXTFILE="${BOTKIT_HEALTH_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_healthcheck.prom}"
+MAX_HEALTH_AGE="${MAX_HEALTH_AGE:-900}"
 
 SERVICES=(
   "prometheus|http://127.0.0.1:9090/-/healthy"
@@ -118,6 +122,63 @@ else
   fi
 fi
 
+# --- 5c. auto-rollout timer is enabled --------------------------------------
+# A disabled rollout timer freezes the fleet silently: merges to main keep building
+# images, nothing rolls them out, and every bot stays healthy on an old tag while all
+# dashboards read green. That is not hypothetical - the timer was stopped by hand on
+# 07.11 during maintenance and left off, and the next merge would have gone unnoticed.
+# `is-enabled` is the fact that matters: `is-active` is also true for a manual start,
+# and a masked or missing unit is a different kind of gone.
+ROLLOUT_TIMER="${ROLLOUT_TIMER:-botkit-rollout-check.timer}"
+if ! systemctl cat "$ROLLOUT_TIMER" >/dev/null 2>&1; then
+  note_fail "rollout=timer-missing ($ROLLOUT_TIMER)"
+else
+  timer_state=$(systemctl is-enabled "$ROLLOUT_TIMER" 2>/dev/null || echo unknown)
+  [ "$timer_state" = "enabled" ] || note_fail "rollout=timer-$timer_state ($ROLLOUT_TIMER)"
+fi
+
+# --- 5d. healthcheck self-staleness -------------------------------------------
+# The watcher that writes the bot answers must itself be watched: drift got this
+# treatment on 13.11 (staleness alert on botkit_drift_last_check_timestamp_seconds),
+# and the healthcheck - which wrote no metric of its own - was the next silent-check
+# gap. Without it a dead or stuck healthcheck leaves every downstream verdict frozen
+# green. Threshold: three runs of the 5-minute timer (3 x 300s), the same "three cycles"
+# convention drift uses (3 x 900s for its 15-minute timer).
+if [ ! -f "$HEALTH_TEXTFILE" ]; then
+  note_fail "healthcheck=missing (нет $HEALTH_TEXTFILE)"
+else
+  health_mtime=$(stat -c %Y "$HEALTH_TEXTFILE" 2>/dev/null || echo 0)
+  if [ "$health_mtime" -eq 0 ]; then
+    note_fail "healthcheck=unreadable (не читается mtime $HEALTH_TEXTFILE)"
+  else
+    health_age=$((now - health_mtime))
+    if [ "$health_age" -gt "$MAX_HEALTH_AGE" ]; then
+      note_fail "healthcheck=stale age=${health_age}s limit=${MAX_HEALTH_AGE}s"
+    fi
+  fi
+fi
+
+# --- 5d. healthcheck self-staleness -------------------------------------------
+# The watcher that writes the bot answers must itself be watched: drift got this
+# treatment on 13.11 (staleness alert on botkit_drift_last_check_timestamp_seconds),
+# and the healthcheck - which wrote no metric of its own - was the next silent-check
+# gap. Without it a dead or stuck healthcheck leaves every downstream verdict frozen
+# green. Threshold: three runs of the 5-minute timer (3 x 300s), the same "three cycles"
+# convention drift uses (3 x 900s for its 15-minute timer).
+if [ ! -f "$HEALTH_TEXTFILE" ]; then
+  note_fail "healthcheck=missing (нет $HEALTH_TEXTFILE)"
+else
+  health_mtime=$(stat -c %Y "$HEALTH_TEXTFILE" 2>/dev/null || echo 0)
+  if [ "$health_mtime" -eq 0 ]; then
+    note_fail "healthcheck=unreadable (не читается mtime $HEALTH_TEXTFILE)"
+  else
+    health_age=$((now - health_mtime))
+    if [ "$health_age" -gt "$MAX_HEALTH_AGE" ]; then
+      note_fail "healthcheck=stale age=${health_age}s limit=${MAX_HEALTH_AGE}s"
+    fi
+  fi
+fi
+
 # --- 6. backup freshness ----------------------------------------------------
 # Two independent freshness signals: the 6h cp copies the green checks already
 # look at, and the consistent sqlite export that has been failing since 03.10.
@@ -137,9 +198,25 @@ else
   [ "$age" -gt "$MAX_EXPORT_AGE" ] && note_fail "export=stale age=${age}s limit=${MAX_EXPORT_AGE}s"
 fi
 
+# --- publish self staleness for the BotkitHealthcheckStale alert ---------------
+# Same pattern as check_drift.sh: mktemp + atomic mv into the node-exporter textfile
+# dir (ReadWritePaths of the check units). botkit_healthcheck_ok carries the last
+# verdict, botkit_healthcheck_last_run_seconds the last run time.
+#
+# chmod 644 is not cosmetic: this unit runs as root and mktemp creates 600, while
+# node-exporter runs as an unprivileged user inside its container. A 600 file is
+# invisible to the collector, so the metrics simply do not exist - and the alert on
+# them is `absent(...) or ...`, which is true for a missing metric. On 14.11 that
+# read as a dead healthcheck while it was running every five minutes and writing.
+health_out=$(mktemp "${HEALTH_TEXTFILE}.XXXXXX") && {
+  printf 'botkit_healthcheck_last_run_seconds %s\nbotkit_healthcheck_ok %s\n' "$now" "$([ "$fail" -eq 0 ] && printf 1 || printf 0)" > "$health_out"
+  chmod 644 "$health_out"
+  mv -f "$health_out" "$HEALTH_TEXTFILE"
+}
+
 # --- verdict ----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
-  echo "$(ts) OK bots=${ok}/${#PORTS[@]} services=${#SERVICES[@]} containers=clean units=clean backups=fresh" >>"$LOG"
+  echo "$(ts) OK bots=${ok}/${#PORTS[@]} services=${#SERVICES[@]} containers=clean units=clean rollout=enabled backups=fresh" >>"$LOG"
   exit 0
 fi
 echo "$(ts) FAIL problems=${fail} bots=${ok}/${#PORTS[@]}" >>"$LOG"

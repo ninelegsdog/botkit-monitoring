@@ -360,6 +360,7 @@ def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str,
             secret_configured=bool(read_secret(bot.name)),
             prev_pending=None if args.quick else read_pending(bot.name),
             quick=args.quick,
+            now=int(time.time()),
         )
         if not args.quick and args.fault == "none":
             write_pending(bot.name, info.pending_update_count)
@@ -368,7 +369,14 @@ def check_bot(bot: Bot, args: argparse.Namespace, domain: str, expected_ip: str,
     if severity is None:
         pending = info.pending_update_count if info else "?"
         pinned = info.has_custom_certificate if info else "?"
-        log(f"{bot.name:12s} OK (pending={pending} custom_cert={pinned})")
+        # The error that did not fire C5 is still worth naming: it is the reason the bot was
+        # red before this check learned to tell a stale record from a live failure.
+        stale = (
+            f", stale_error={info.last_error_message!r} at {info.last_error_date}"
+            if info is not None and info.last_error_message
+            else ""
+        )
+        log(f"{bot.name:12s} OK (pending={pending} custom_cert={pinned}{stale})")
         resolve_alert(bot.name, log)
         return BotResult(bot.name, True, info.pending_update_count if info else None)
 

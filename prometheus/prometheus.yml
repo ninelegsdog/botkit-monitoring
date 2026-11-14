@@ -127,6 +127,26 @@ scrape_configs:
       - target_label: __address__
         replacement: 127.0.0.1:9115
 
+  # Внешний наблюдатель за монитором (31.76.11.198, DE): на нём живут Kuma,
+  # WG-выход и E2E-туннель. 13.11 монитор был выключен 17 ч 45 мин, и это не
+  # заметил никто: Kuma не может сообщить о собственной смерти, а прод живёт на
+  # другом хосте и другом провайдере (NL). TCP/22 — самый дешёвый признак жизни
+  # (порт открыт в мир, 443 на мониторе закрыт намеренно: всё loopback-only).
+  - job_name: blackbox-monitor
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - 31.76.11.198:22
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
   # Метрики самого Tempo. Job tempo-ready выше проверяет только /ready через blackbox,
   # поэтому память процесса Tempo ничем не наблюдалась: при упоре в свой cgroup-лимит
   # 512 MiB контейнер убивал бы OOM-киллер, а HostMemHigh этого не видит — на хосте
