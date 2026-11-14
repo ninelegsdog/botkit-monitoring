@@ -13,8 +13,8 @@ than merely 'the clone exists'.
 
 from __future__ import annotations
 
+import os
 import pathlib
-import re
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 E2E_DIR = REPO / "ops" / "e2e"
@@ -28,7 +28,6 @@ CLONE_SYNC_HELPER = REPO / "ops" / "lib" / "clone_sync.sh"
 def test_sync_runner_clone_script_exists_and_is_executable():
     """The runner clone needs a sync mechanism."""
     assert SYNC_RUNNER.is_file(), "sync-runner-clone.sh is missing"
-    import os
     assert os.access(SYNC_RUNNER, os.X_OK), "the script must be executable"
 
 
@@ -54,8 +53,8 @@ def test_e2e_service_requires_sync_before_runner():
     """The runner must not start before the clone is updated."""
     unit = E2E_SERVICE.read_text()
     assert "Requires=botkit-e2e-sync.service" in unit
-    after = [l for l in unit.splitlines() if l.startswith("After=")]
-    assert any("botkit-e2e-sync.service" in l for l in after)
+    after = [line for line in unit.splitlines() if line.startswith("After=")]
+    assert any("botkit-e2e-sync.service" in line for line in after)
 
 
 def test_clone_sync_helper_exists():

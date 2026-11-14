@@ -32,4 +32,3 @@ A PR is stale if:
 - Its head branch is deleted (404 on branches API).
 - It has merge conflicts (DIRTY).
 - A newer version of the same dependency is available.
-EOF

@@ -59,5 +59,3 @@ def test_example():
 - ❌ Тест, который проверяет только одну ветку state-dependent view
 - ❌ Тест без docstring
 - ❌ Тест, который проверяет «форму» (наличие), а не «содержание» (корректность)
-EOF
-echo "standard written"

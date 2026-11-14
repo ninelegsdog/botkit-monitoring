@@ -17,7 +17,6 @@ matters is in the source.
 from __future__ import annotations
 
 import pathlib
-import re
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 
