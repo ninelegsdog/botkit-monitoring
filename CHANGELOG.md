@@ -68,6 +68,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A checkout that trails `origin/main` only on `paths-ignore` paths is no longer drift.
+  `deploy.yml` never builds an image for those commits, so no rollout can ever sync the
+  checkout: on 14.11 `bookingbot` sat a day behind on `.github/CODEOWNERS` and
+  `.github/dependabot.yml` while the image comparison in the same run printed "docs, tests
+  and CI only" — two lines of one log disagreeing about the same repository, and the red
+  unit made the whole fleet look broken. The lag is now filtered through the same
+  `paths-ignore` list the image comparison reads, and a missing file that would reach the
+  image is still reported. A failed `git fetch` now clears `head`/`origin` instead of
+  leaving the previous bot's values for the image comparison.
+
+- A webhook delivery error no longer paints a bot red forever. Telegram keeps
+  `last_error_message` until an update is delivered successfully, so the timeout recorded
+  while the host was down outlives the outage: on 14.11 `support` and `leadgen` failed C5
+  for a day on errors recorded at 13.11 08:58, with `pending_update_count=0` and the
+  endpoint answering. C5 is now critical only while the error is recent
+  (`LAST_ERROR_MAX_AGE_S`, one hour) or an update is actually queued; a stale record is
+  named in the OK line instead of being silently dropped.
+
 - A press step in the live E2E could not fail on content, and the verdict of a
   failed run could not be read without a database and the bot's source. The wait
   in `_wait_edit` searched the message for the expected substring while waiting

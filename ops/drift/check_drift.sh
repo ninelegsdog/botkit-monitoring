@@ -194,11 +194,41 @@ for entry in $BOTS; do
   # --- HEAD vs origin/main (tracking) ---
   if ! fetch_clone "$d" 2>>"$LOG"; then
     track+=("git fetch failed")
+    # Не оставлять значения предыдущего бота: при неудачном fetch `head` и `origin`
+    # оставались от прошлой итерации, и тег следующего бота сравнивался с веткой
+    # чужого репозитория.
+    head=""
+    origin=""
   else
     head=$(git -c safe.directory="$d" -C "$d" rev-parse HEAD 2>/dev/null)
     origin=$(git -c safe.directory="$d" -C "$d" rev-parse origin/main 2>/dev/null)
     if [ -n "$head" ] && [ -n "$origin" ] && [ "$head" != "$origin" ]; then
-      track+=("HEAD ${head:0:7} != origin/main ${origin:0:7}")
+      # Отставание чекаута — дрейф только тогда, когда пропущенные коммиты заставили бы
+      # deploy.yml собрать образ. Коммиты под paths-ignore сборку не запускают, поэтому
+      # никакой rollout этот чекаут не догонит: 14.11 bookingbot сутки отставал на
+      # .github/CODEOWNERS и .github/dependabot.yml, а сравнение образов в том же прогоне
+      # печатало "docs, tests and CI only" — две строки одного лога спорили об одном
+      # репозитории. Устарел ли работающий код, решает сравнение образов ниже; эта строка
+      # отвечает только за содержимое чекаута.
+      ignore=()
+      while IFS= read -r pat; do
+        [ -n "$pat" ] && ignore+=("$pat")
+      done < <(deploy_ignore_patterns "$d/.github/workflows/deploy.yml")
+      lag=""
+      while IFS= read -r changed; do
+        [ -n "$changed" ] || continue
+        skip=0
+        for pat in ${ignore[@]+"${ignore[@]}"}; do
+          # shellcheck disable=SC2053 # glob-шаблон paths-ignore, а не литерал
+          if [[ "$changed" == $pat ]]; then skip=1; break; fi
+        done
+        [ "$skip" = 1 ] || { lag="$changed"; break; }
+      done < <(git -c safe.directory="$d" -C "$d" diff --name-only "$head..$origin" 2>/dev/null)
+      if [ -n "$lag" ]; then
+        track+=("HEAD ${head:0:7} != origin/main ${origin:0:7} (unbuilt path: $lag)")
+      else
+        log "TRACK OK $bot (checkout ${head:0:7} trails origin/main ${origin:0:7} on paths-ignore only)"
+      fi
     elif [ -z "$origin" ]; then
       track+=("origin/main unresolvable")
     fi

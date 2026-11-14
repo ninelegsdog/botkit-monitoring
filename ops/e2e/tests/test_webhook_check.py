@@ -66,6 +66,51 @@ def test_c5_last_error_message_is_critical():
     assert any("certificate verify failed" in f.reason for f in failures)
 
 
+def test_c5_stale_error_with_nothing_pending_is_not_a_failure():
+    """Ошибка, записанная при недоступности хоста, не красит бота навсегда.
+
+    14.11: support и leadgen сутки были красными из-за таймаутов, записанных 13.11 в
+    08:58 — через 19 секунд после старта контейнера, когда хост уже поднялся. Очередь
+    пуста (pending=0), эндпоинт отвечает; Telegram просто не доставлял ничего нового,
+    поэтому last_error_message не сбрасывался.
+    """
+    now = 1_800_000_000
+    info = parse_webhook_info(
+        payload(last_error_message="Connection timed out", last_error_date=now - 86400)
+    )
+    assert evaluate(info, expected_url=EXPECTED_URL, now=now) == []
+
+
+def test_c5_recent_error_is_still_critical():
+    """Свежая ошибка — это отказ доставки прямо сейчас, а не остаток прошлой аварии."""
+    now = 1_800_000_000
+    info = parse_webhook_info(
+        payload(last_error_message="Connection timed out", last_error_date=now - 60)
+    )
+    assert "C5" in check_ids(evaluate(info, expected_url=EXPECTED_URL, now=now))
+
+
+def test_c5_stale_error_with_pending_updates_is_still_critical():
+    """Очередь не пуста — Telegram пытается доставить сейчас, возраст ошибки не спасает."""
+    now = 1_800_000_000
+    info = parse_webhook_info(
+        payload(
+            last_error_message="Connection timed out",
+            last_error_date=now - 86400,
+            pending_update_count=1,
+        )
+    )
+    assert "C5" in check_ids(evaluate(info, expected_url=EXPECTED_URL, now=now))
+
+
+def test_c5_without_a_clock_stays_conservative():
+    """Вызывающий не передал время — вердикт не смягчается."""
+    info = parse_webhook_info(
+        payload(last_error_message="Connection timed out", last_error_date=1)
+    )
+    assert "C5" in check_ids(evaluate(info, expected_url=EXPECTED_URL))
+
+
 def test_c3_url_mismatch_is_critical():
     info = parse_webhook_info(payload(url="https://ninelegsbots.duckdns.org/webhook/store"))
     assert "C3" in check_ids(evaluate(info, expected_url=EXPECTED_URL))
