@@ -5,6 +5,20 @@
 #
 #   bash ops/lib/sync-canon.sh [expected-commit|HEAD]
 #
+# Что доказывается, по шагам:
+#   1-3  клон принадлежит deploy и стоит на origin/main (fetch без --quiet: молчаливый
+#        отказ fetch — это уже случившийся инцидент 26.09);
+#   4    маркеры содержимого, а не только HEAD: reset успешен и на старом содержимом;
+#   4b   node-exporter не монтирует tmpfs поверх /tmp;
+#   4c   каждый ops/*.sh парсится (bash -n);
+#   4d   data/ и backups/ ботов принадлежат uid контейнера;
+#   5    рантайм-бандл webhook-check равен канону (единственная копия, которую видит systemd);
+#   6    работающий Prometheus загрузил все алерты из prometheus/alerts.yml (SIGHUP, затем
+#        сверка имён: правило, добавленное в канон, иначе не существует на хосте);
+#   7    установленные systemd-юниты совпадают с каноном (ops/lib/managed-units.txt).
+#
+# Шаги 5-7 пропускаются в --check-only: там проверяются assertions клона, а не хост.
+#
 # Почему не `git fetch --quiet && git reset --hard` одной строкой:
 #   1) fetch от пользователя deploy падает с "insufficient permission for adding an
 #      object to repository database", если раньше git запускался от root и оставил
