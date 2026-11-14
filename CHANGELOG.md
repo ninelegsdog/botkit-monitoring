@@ -68,6 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The healthcheck and rollout poller now publish their textfiles mode 644, and the
+  healthcheck publishes them once. `mktemp` under root's umask creates 600, and
+  node-exporter runs unprivileged inside its container, so the metrics were absent rather
+  than stale — and the alerts guarding them are `absent(...) or ...`, which fires on
+  absence. On 14.11 both `BotkitHealthcheckStale` and `BotkitRolloutCheckStale` were
+  critical for a day while both units ran on schedule and wrote their files. The
+  healthcheck also carried the same publish block twice, which is how a fix to one copy
+  would have left the other writing the old mode; the duplicate is gone and a contract
+  test fails if it returns.
+
 - A checkout that trails `origin/main` only on `paths-ignore` paths is no longer drift.
   `deploy.yml` never builds an image for those commits, so no rollout can ever sync the
   checkout: on 14.11 `bookingbot` sat a day behind on `.github/CODEOWNERS` and

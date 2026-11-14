@@ -202,17 +202,15 @@ fi
 # Same pattern as check_drift.sh: mktemp + atomic mv into the node-exporter textfile
 # dir (ReadWritePaths of the check units). botkit_healthcheck_ok carries the last
 # verdict, botkit_healthcheck_last_run_seconds the last run time.
+#
+# chmod 644 is not cosmetic: this unit runs as root and mktemp creates 600, while
+# node-exporter runs as an unprivileged user inside its container. A 600 file is
+# invisible to the collector, so the metrics simply do not exist - and the alert on
+# them is `absent(...) or ...`, which is true for a missing metric. On 14.11 that
+# read as a dead healthcheck while it was running every five minutes and writing.
 health_out=$(mktemp "${HEALTH_TEXTFILE}.XXXXXX") && {
   printf 'botkit_healthcheck_last_run_seconds %s\nbotkit_healthcheck_ok %s\n' "$now" "$([ "$fail" -eq 0 ] && printf 1 || printf 0)" > "$health_out"
-  mv -f "$health_out" "$HEALTH_TEXTFILE"
-}
-
-# --- publish self staleness for the BotkitHealthcheckStale alert ---------------
-# Same pattern as check_drift.sh: mktemp + atomic mv into the node-exporter textfile
-# dir (ReadWritePaths of the check units). botkit_healthcheck_ok carries the last
-# verdict, botkit_healthcheck_last_run_seconds the last run time.
-health_out=$(mktemp "${HEALTH_TEXTFILE}.XXXXXX") && {
-  printf 'botkit_healthcheck_last_run_seconds %s\nbotkit_healthcheck_ok %s\n' "$now" "$([ "$fail" -eq 0 ] && printf 1 || printf 0)" > "$health_out"
+  chmod 644 "$health_out"
   mv -f "$health_out" "$HEALTH_TEXTFILE"
 }
 
