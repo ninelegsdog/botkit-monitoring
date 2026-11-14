@@ -203,6 +203,6 @@ def test_fetch_failure_fails():
         subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin", str(td / "nope.git")], check=True)
         result = _run_script(clone)
         assert result.returncode != 0
-        assert "git fetch failed" in result.stderr
+        assert "FATAL" in result.stderr and "clone sync failed" in result.stderr
     finally:
         shutil.rmtree(td, ignore_errors=True)

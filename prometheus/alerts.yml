@@ -58,6 +58,7 @@ groups:
         annotations:
           summary: "Ретенция docker-образов не запускалась больше 8 суток"
           description: "Еженедельный prune не обновляет метрику: таймер выключен, юнит падает до записи или textfile не читается node-exporter'ом. Образы копятся молча — проверить: systemctl status botkit-image-prune.timer; journalctl -u botkit-image-prune; ls -l /var/lib/node-exporter-textfile/botkit_image_prune.prom"
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/image-prune.md"
 
       - alert: BotkitImagePruneFailed
         expr: botkit_image_prune_ok == 0
@@ -276,6 +277,7 @@ groups:
         annotations:
           summary: "Проверка дрейфа не обновляет метрики"
           description: "botkit_drift_last_check_timestamp_seconds не меняется больше 45 минут (3 цикла по 15) или отсутствует совсем. Пока метрики заморожены, botkit_drift_ok читается по последнему записанному значению — дрейф не виден. Проверить: systemctl status botkit-drift.timer; journalctl -u botkit-drift (искать 'Read-only file system'); ls -l /var/lib/node-exporter-textfile/botkit_drift.prom; systemctl show botkit-drift -p ReadWritePaths"
+          runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/drift.md"
 
       # Дрейф есть, но он вне грейса. Дублирует out-of-band алерты самого check_drift.sh
       # (он шлёт BotkitDrift напрямую в Alertmanager с троттлингом 6ч), но появляется

@@ -25,6 +25,8 @@
 # Environment: CLONE (default /opt/botkit-e2e), RUNNER_USER (botkit-e2e), BRANCH (main),
 # GIT (git). The overrides exist so the tests can run this against a throwaway repository.
 set -euo pipefail
+_self=$(readlink -f "${BASH_SOURCE[0]}")
+. "$(dirname "$_self")/../../lib/clone_sync.sh" 2>/dev/null || true
 
 CLONE=${CLONE:-/opt/botkit-e2e}
 RUNNER_USER=${RUNNER_USER:-botkit-e2e}
@@ -43,15 +45,13 @@ reqs_before=$(sha256sum "$CLONE/ops/e2e/requirements.txt" 2>/dev/null | awk '{pr
 # No --quiet: a fetch that fails silently is how a rollout reports success while changing
 # nothing. The sync unit runs before the runner, so a failure here must stop the run rather
 # than let the runner report on code that is not canon.
-$GIT -C "$CLONE" fetch --prune origin "$BRANCH" || die "git fetch failed; the clone is still at $before"
-
-target=$($GIT -C "$CLONE" rev-parse --short "origin/$BRANCH") || die "cannot resolve origin/$BRANCH"
-behind=$($GIT -C "$CLONE" rev-list --count "HEAD..origin/$BRANCH")
-
-$GIT -C "$CLONE" reset --hard "origin/$BRANCH" >/dev/null || die "reset --hard origin/$BRANCH failed"
-
+# Fetch + reset + verify via the shared helper (clone_sync.sh).
+if ! sync_clone "$CLONE" "$BRANCH"; then
+  die "clone sync failed; the clone is still at $before"
+fi
+target=$($GIT -C "$CLONE" rev-parse --short "origin/$BRANCH" 2>/dev/null) || target=""
 after=$($GIT -C "$CLONE" rev-parse --short HEAD)
-[ "$after" = "$target" ] || die "HEAD=$after after the reset, origin/$BRANCH=$target"
+behind=$($GIT -C "$CLONE" rev-list --count "$before..$after" 2>/dev/null || echo 0)
 
 if [ "$dirty" -gt 0 ]; then
   echo "  discarded $dirty local change(s) in the clone; canon is the only writer"
