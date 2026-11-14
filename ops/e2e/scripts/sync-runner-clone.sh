@@ -49,7 +49,6 @@ reqs_before=$(sha256sum "$CLONE/ops/e2e/requirements.txt" 2>/dev/null | awk '{pr
 if ! sync_clone "$CLONE" "$BRANCH"; then
   die "clone sync failed; the clone is still at $before"
 fi
-target=$($GIT -C "$CLONE" rev-parse --short "origin/$BRANCH" 2>/dev/null) || target=""
 after=$($GIT -C "$CLONE" rev-parse --short HEAD)
 behind=$($GIT -C "$CLONE" rev-list --count "$before..$after" 2>/dev/null || echo 0)
 
