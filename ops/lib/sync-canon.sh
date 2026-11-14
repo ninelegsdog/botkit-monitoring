@@ -67,6 +67,15 @@ if [ "$EXPECT_REF" != "HEAD" ] && [ "$head_sha" != "${EXPECT_REF:0:7}" ]; then
   exit 1
 fi
 
+# bash keeps reading this file as it executes, and step 3 just replaced it on disk. If the
+# synced commit changed sync-canon.sh itself, everything below would run as the old code
+# while the clone holds the new one - so a step added in this commit would not run on the
+# sync that installs it. The helper compares hashes and re-execs the synced copy.
+if [ "$CHECK_ONLY" != 1 ] && [ -r "$REPO/ops/lib/reexec-if-changed.sh" ]; then
+  . "$REPO/ops/lib/reexec-if-changed.sh"
+  reexec_if_changed "${BASH_SOURCE[0]}" "$REPO/ops/lib/sync-canon.sh" "$EXPECT_REF"
+fi
+
 echo "=== 4. content markers (HEAD alone does not prove the sync) ==="
 for marker in "${MARKERS[@]}"; do
   file="${marker%%:*}"
