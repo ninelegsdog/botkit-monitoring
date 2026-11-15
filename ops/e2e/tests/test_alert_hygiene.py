@@ -130,3 +130,37 @@ def test_smoke_has_staleness_alert() -> None:
     assert "BotkitSmokeStale" in names, (
         "нет BotkitSmokeStale: smoke-проверка не имеет self-staleness защиты"
     )
+
+
+def test_absent_over_time_is_never_joined_on_instance() -> None:
+    """`and on(instance) absent_over_time(...)` can never match.
+
+    absent_over_time keeps only the equality matchers of its selector, never a label
+    that comes from the scrape target, so the right side of the join has no `instance`.
+    BotMetricsUnavailable was written this way, then fixed to
+    `unless on(instance) count by (instance) (...)`, then silently reverted by a merge
+    resolution that compared alert *names* instead of expressions. Pin the shape so a
+    future conflict resolution cannot bring the inert rule back unnoticed.
+    """
+    bad = []
+    for rule in _rules():
+        expr = str(rule.get("expr", ""))
+        if re.search(r"and\s+on\s*\([^)]*\)\s+absent_over_time\s*\(", expr):
+            bad.append(f"{rule['alert']}: {expr.strip()}")
+    assert not bad, (
+        "absent_over_time drops instance, so `and on(instance)` never matches:\n  "
+        + "\n  ".join(bad)
+    )
+
+
+def test_metrics_unavailable_uses_unless_on_count() -> None:
+    """BotMetricsUnavailable must fire when traffic exists but the metric is missing."""
+    rules = {r["alert"]: r for r in _rules()}
+    rule = rules.get("BotMetricsUnavailable")
+    assert rule is not None, "нет правила BotMetricsUnavailable"
+    expr = str(rule.get("expr", ""))
+    assert "unless" in expr, f"BotMetricsUnavailable не использует unless: {expr.strip()}"
+    assert "count by (instance)" in expr, (
+        f"BotMetricsUnavailable не считает серии по instance: {expr.strip()}"
+    )
+    assert "botkit_errors_total" in expr, expr.strip()
