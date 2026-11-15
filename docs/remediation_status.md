@@ -61,7 +61,7 @@
 - `ops/lib/sync-canon.sh` — добавлена метрика `botkit_sync_canon_last_run_seconds`.
 
 ### Прод-статус 15.11 ✅
-- `sync-canon` → `SYNC OK 684da6c`; Prometheus reload.
+- `sync-canon` → `SYNC OK 497429b`; Prometheus reload.
 - 47 rules, `BotkitSmokeStale` присутствует, expr `BotMetricsUnavailable` — `unless on (instance) count by (...)`.
 - Active alerts: 0.
 - `botkit_errors_total`: 32 серии (8 ботов × 4 error_type).
@@ -74,7 +74,7 @@
 - shellcheck (все `ops/**/*.sh`) — OK.
 - bash -n (все `ops/**/*.sh`) — OK.
 - pytest core (не fleet) — 469 passed, 14 skipped (+2 теста #114).
-- main после docs-PR #115: `684da6c` (этот файл).
+- main после docs-PR #115/#116/#117: `497429b` (этот файл).
 - Профильные контракты (textfile_mode, image_prune, drift, smoke, backup, restic, health/rollout) — 62 passed.
 
 ### Замечания / неполноты
