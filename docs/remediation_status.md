@@ -13,13 +13,24 @@
 - Обновлено 39 мёртвых `runbook_url` (было `tree/main/docs/runbooks` → конкретные файлы).
 - `tests/test_runbook_urls_exist.py` создан и проходит (2 passed).
 
-### D2 — botkit_errors_total инициализация ✅
-- `init_error_metrics()` добавлена в bot error handler (`BOTKIT-FARM/bots/botkit-store/src/core/errors.py`).
-- Pre-initialize error_type series (retry_after, network, unhandled, domain) с 0.
+### D2 — botkit_errors_total инициализация ✅ (выкачено на прод 15.11)
+- `init_error_metrics()` добавлена в `src/core/errors.py` восьми bot-репозиториев:
+  `botkit-store` (#61), `bookingbot` (#59), `membership` (#57), `leadgen` (#58),
+  `support` (#59), `pricesentry` (#56), `docuflow` (#55), `delivery` (#49) — все squash-merged.
+- Pre-initialize error_type series (retry_after, network, unhandled, domain) с 0 при
+  регистрации хендлера.
+- deploy.yml по всем 8 — success; rollout-check на проде перевёл контейнеры на новые
+  теги (`v0.8.5-<sha>`), health/metrics OK.
+- На проде: `count by (instance) (botkit_errors_total)` = 4 у каждого из 8 ботов
+  (`bot-8081..8088`), всего 32 серии. SLO-правила больше не инертны.
+- `botkit-reminder` не покрыт: он публикует `error_handler_errors_total`
+  (`error_type=retry_after|network_error|unhandled`), а не `botkit_errors_total` —
+  отдельный gap, issue #111.
 
 ### D3 — BotMetricsUnavailable исправлен ✅
 - Выражение переписано: `and on(instance) absent_over_time(...)` → `unless on(instance) count by (instance) (...)`.
-- YAML валиден, `promtool check rules` пройден ранее — пересмотр нужен после reload.
+- При merge PR #110 эта правка откатилась (см. «Замечания»), восстановлена PR #112.
+- На проде после reload: expr = `... > 0.001 unless on (instance) count by (instance) (botkit_errors_total{job="botkit"})`.
 
 ### D4 — Smoke self-staleness ✅
 - `ops/e2e/smoke_all.sh` добавлена запись `botkit_smoke_last_run_seconds` в textfile.
@@ -49,6 +60,14 @@
 ### D12 — sync-canon metric ✅
 - `ops/lib/sync-canon.sh` — добавлена метрика `botkit_sync_canon_last_run_seconds`.
 
+### Прод-статус 15.11 ✅
+- `sync-canon` → `SYNC OK 7bbe034`; Prometheus reload.
+- 47 rules, `BotkitSmokeStale` присутствует, expr `BotMetricsUnavailable` — `unless on (instance) count by (...)`.
+- Active alerts: 0.
+- `botkit_errors_total`: 32 серии (8 ботов × 4 error_type).
+- `botkit_smoke_last_run_seconds`: 1 серия; `count(botkit_clone_age_seconds)` = 9;
+  `botkit_drift_last_run_seconds`, `botkit_backup_last_run_seconds` — свежие.
+
 ### Валидация ✅
 - YAML alerts.yml — OK (47 rules).
 - promtool check rules — SUCCESS: 47 rules found.
@@ -64,10 +83,18 @@
   `restic-backup.sh`, `check_drift.sh`, `smoke_all.sh`; `healthcheck.sh` — ранее).
   Тестовые harness'ы копируют `ops/lib/textfile_write.sh` рядом с `fleet.sh`.
 - D14–D18 — owner-gated, блокировано у владельца.
-- BotErrors init в deployed-venv не перезапущен — нужен redeploy бота для применения.
+- **Ловушка merge (15.11):** резолюция конфликта `alerts.yml` в PR #110 взяла main как
+  базу и вернула только runbook-URL + `BotkitSmokeStale`; правка D3 (`BotMetricsUnavailable`)
+  откатилась к `and on(instance) absent_over_time`, т.е. к молчащему правилу. Поймано
+  структурным diff'ом alert→expr, восстановлено PR #112. Вывод: при merge-резолюции
+  сравнивать не имена алертов, а `expr`/`annotations` по каждому правилу.
+- Farm-smoke (`Ферма · офлайн-прогоны`) красный и на `main` с 14.11 — pre-existing,
+  не required-check (required только `check`, `security`), поэтому не блокирует merge.
+- `botkit-reminder` — gap `botkit_errors_total`, issue #111.
 
 ## Следующий шаг
-- PR + squash-merge в main, sync-canon на prod, redeploy ботов (для применения D2).
+- Owner-gated: #99 AI-ревью PR, #103 restore-drill/RTO, #104 ротация секретов,
+  #105 E2E-аккаунт, #106 kb-gate, #111 reminder-метрика.
 
 ## Знания
 - Отчёт: `/tmp/opencode/root_cause_post_prevention.md`
