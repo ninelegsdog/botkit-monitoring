@@ -73,7 +73,7 @@
 - promtool check rules — SUCCESS: 47 rules found.
 - shellcheck (все `ops/**/*.sh`) — OK.
 - bash -n (все `ops/**/*.sh`) — OK.
-- pytest core (не fleet) — 467 passed, 14 skipped.
+- pytest core (не fleet) — 469 passed, 14 skipped (+2 теста #114).
 - Профильные контракты (textfile_mode, image_prune, drift, smoke, backup, restic, health/rollout) — 62 passed.
 
 ### Замечания / неполноты
@@ -88,6 +88,12 @@
   откатилась к `and on(instance) absent_over_time`, т.е. к молчащему правилу. Поймано
   структурным diff'ом alert→expr, восстановлено PR #112. Вывод: при merge-резолюции
   сравнивать не имена алертов, а `expr`/`annotations` по каждому правилу.
+
+- Финал 15.11: PR #114 добавил 2 контрактных теста на форму `BotMetricsUnavailable`
+  (запрет `and on(instance)`, требование `absent_over_time`). main = `9f3d993`.
+  Знания разложены: vault `30_LEARNINGS/2026-11-14-prevention-root-cause.md`,
+  `40_SESSIONS/2026-11-15-prevention-status.md`, `40_SESSIONS/2026-11-14-prevention-checklist.md`,
+  `40_SESSIONS/2026-11-14-prevention-plan.md`; SKILL.md (раздел «Реабилитация prevention»).
 - Farm-smoke (`Ферма · офлайн-прогоны`) красный и на `main` с 14.11 — pre-existing,
   не required-check (required только `check`, `security`), поэтому не блокирует merge.
 - `botkit-reminder` — gap `botkit_errors_total`, issue #111.
