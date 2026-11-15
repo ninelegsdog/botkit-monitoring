@@ -17,6 +17,11 @@ LOG="${BOTKIT_HEALTH_LOG:-/var/log/botkit-health.log}"
 TIMEOUT=5
 SELF_UNIT="botkit-healthcheck.service"
 DRIFT_UNIT="botkit-drift.service"
+# Legacy unit: the E2E runner lives on predator (knowledge #261). The unit on
+# prod is a leftover oneshot that fails with "resources" and is not a real
+# outage signal. Counting it made the healthcheck red while all 9 bots were
+# healthy. Excluded deliberately; remove the unit from prod in a separate step.
+E2E_UNIT="botkit-e2e.service"
 # Backup cadence is 6h; 7h leaves one missed run before the check goes red.
 MAX_BACKUP_AGE="${MAX_BACKUP_AGE:-25200}"
 MAX_EXPORT_AGE="${MAX_EXPORT_AGE:-25200}"
@@ -94,7 +99,7 @@ fi
 # that also hid the real problem. Drift is judged on its published metric instead,
 # in section 5b, which is a fact about the check rather than about systemd's
 # reset-on-restart bookkeeping.
-units=$(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | grep -E '[.]service$' | grep -v -e "^${SELF_UNIT}$" -e "^${DRIFT_UNIT}$" || true)
+units=$(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | grep -E '[.]service$' | grep -v -e "^${SELF_UNIT}$" -e "^${DRIFT_UNIT}$" -e "^${E2E_UNIT}$" || true)
 if [ -n "$units" ]; then
   while IFS= read -r unit; do
     note_fail "unit=$unit"
