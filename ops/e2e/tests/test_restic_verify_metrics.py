@@ -33,7 +33,7 @@ def test_write_metrics_publishes_to_file(tmp_path) -> None:
         "#!/usr/bin/env bash\n"
         "set -uo pipefail\n"
         + func
-        + '\nTEXTFILE="%s"\n' % textfile
+        + f'\nTEXTFILE="{textfile}"\n'
         + 'PREFIX="[botkit-restic-verify]"\n'
         + 'declare -A OK TS\n'
         + 'OK=([data]=0 [cp]=0 [monitor]=0)\n'
@@ -44,7 +44,9 @@ def test_write_metrics_publishes_to_file(tmp_path) -> None:
     )
     script.chmod(0o755)
 
-    result = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+    result = subprocess.run(
+        ["bash", str(script)], capture_output=True, text=True, check=False
+    )
     assert result.returncode == 0, f"write_metrics failed: {result.stderr}"
 
     # Метрика должна быть в файле, а не в stdout.
