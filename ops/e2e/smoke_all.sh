@@ -12,6 +12,7 @@
 set -u
 
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/textfile_write.sh"
 
 
 DOMAIN="https://$WEBHOOK_DOMAIN/webhook"
@@ -177,15 +178,11 @@ done
 
 # Пишем метрику жизни независимо от результата: отсутствие метрики = проверка не запускалась.
 write_smoke_metric() {
-  local tmp now_s
+  local now_s
   now_s=$(date +%s)
-  tmp=$(mktemp "${SMOKE_TEXTFILE}.XXXXXX") || return 1
-  {
-    echo "# HELP botkit_smoke_last_run_seconds Unix time of the last smoke_all.sh run"
-    echo "# TYPE botkit_smoke_last_run_seconds gauge"
-    echo "botkit_smoke_last_run_seconds ${now_s}"
-  } > "$tmp"
-  chmod 644 "$tmp" && mv -f "$tmp" "$SMOKE_TEXTFILE"
+  write_textfile "$SMOKE_TEXTFILE" "# HELP botkit_smoke_last_run_seconds Unix time of the last smoke_all.sh run
+# TYPE botkit_smoke_last_run_seconds gauge
+botkit_smoke_last_run_seconds ${now_s}"
 }
 
 write_smoke_metric || log "WARN: cannot write smoke metric to $SMOKE_TEXTFILE"

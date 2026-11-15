@@ -25,6 +25,7 @@ die() { echo "$PREFIX ОШИБКА: $*" >&2; exit 1; }
 # относительно самого симлинка искал бы /usr/local/lib/snapshot.sh.
 _self=$(readlink -f "${BASH_SOURCE[0]}")
 . "$(dirname "$_self")/../lib/snapshot.sh"
+. "$(dirname "$_self")/../lib/textfile_write.sh"
 
 # Согласованный снимок SQLite через общий ops/lib/snapshot.sh: online-backup API
 # внутри контейнера во временный файл его /tmp (tmpfs) -> docker cp на хост, либо
@@ -55,15 +56,12 @@ stage_consistent() {
 
 write_run_metric() {
   local failed="$1"
-  {
-    echo "# HELP botkit_backup_consistent_failures Bots whose consistent SQLite snapshot failed in the last run"
-    echo "# TYPE botkit_backup_consistent_failures gauge"
-    echo "botkit_backup_consistent_failures $failed"
-    echo "# HELP botkit_backup_last_run_timestamp_seconds Unix time of the last backup run"
-    echo "# TYPE botkit_backup_last_run_timestamp_seconds gauge"
-    echo "botkit_backup_last_run_timestamp_seconds $(date +%s)"
-  } > "$RUNMETRIC"
-  chmod 644 "$RUNMETRIC"
+  write_textfile "$RUNMETRIC" "# HELP botkit_backup_consistent_failures Bots whose consistent SQLite snapshot failed in the last run
+# TYPE botkit_backup_consistent_failures gauge
+botkit_backup_consistent_failures $failed
+# HELP botkit_backup_last_run_timestamp_seconds Unix time of the last backup run
+# TYPE botkit_backup_last_run_timestamp_seconds gauge
+botkit_backup_last_run_timestamp_seconds $(date +%s)"
 }
 
 collect_paths() {

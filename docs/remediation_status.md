@@ -51,13 +51,18 @@
 
 ### Валидация ✅
 - YAML alerts.yml — OK (47 rules).
-- shellcheck — OK.
-- bash -n — OK.
+- promtool check rules — SUCCESS: 47 rules found.
+- shellcheck (все `ops/**/*.sh`) — OK.
+- bash -n (все `ops/**/*.sh`) — OK.
 - pytest core (не fleet) — 467 passed, 14 skipped.
+- Профильные контракты (textfile_mode, image_prune, drift, smoke, backup, restic, health/rollout) — 62 passed.
 
 ### Замечания / неполноты
-- D11 (`botkit_clone_age_seconds`) — не выполнен (P2, сложный).
-- D13 (textfile_write refactor для остальных writers) — не выполнен (P2).
+- D11 (`botkit_clone_age_seconds`) — выполнен в `ops/drift/check_drift.sh` (коммит `1434f7d`).
+- D13 (textfile_write refactor) — выполнен: все писатели textfile используют общий
+  helper `write_textfile` (`check_updates.sh`, `prune_images.sh`, `restic-check.sh`,
+  `restic-backup.sh`, `check_drift.sh`, `smoke_all.sh`; `healthcheck.sh` — ранее).
+  Тестовые harness'ы копируют `ops/lib/textfile_write.sh` рядом с `fleet.sh`.
 - D14–D18 — owner-gated, блокировано у владельца.
 - BotErrors init в deployed-venv не перезапущен — нужен redeploy бота для применения.
 

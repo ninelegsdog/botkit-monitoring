@@ -25,6 +25,7 @@
 set -uo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/textfile_write.sh"
 
 REGISTRY="ghcr.io"
 OWNER="ninelegsdog"
@@ -126,29 +127,25 @@ if [ "$DRY_RUN" != 1 ]; then
   fi
 fi
 
-tmp=$(mktemp "${TEXTFILE}.XXXXXX") && {
-  {
-    echo "# HELP botkit_image_prune_last_run_seconds Unix time of the last image retention run"
-    echo "# TYPE botkit_image_prune_last_run_seconds gauge"
-    echo "botkit_image_prune_last_run_seconds $(date +%s)"
-    echo "# HELP botkit_image_prune_removed_total Tags removed in the last run"
-    echo "# TYPE botkit_image_prune_removed_total gauge"
-    echo "botkit_image_prune_removed_total $removed_total"
-    echo "# HELP botkit_image_prune_failures Tags that could not be removed in the last run"
-    echo "# TYPE botkit_image_prune_failures gauge"
-    echo "botkit_image_prune_failures $failed_total"
-    echo "# HELP botkit_image_prune_ok 1 if the last run had no failures"
-    echo "# TYPE botkit_image_prune_ok gauge"
-    if [ "$failed_total" -eq 0 ]; then echo "botkit_image_prune_ok 1"; else echo "botkit_image_prune_ok 0"; fi
-    echo "# HELP botkit_image_count Local images per bot repository after the run"
-    echo "# TYPE botkit_image_count gauge"
-    cat "$count_metrics"
-  } > "$tmp"
-  # node-exporter is unprivileged: 600 under root's umask is an invisible metric, and
-  # BotkitImagePruneStale is an absent() rule, so it would fire on a working timer.
-  chmod 644 "$tmp"
-  mv -f "$tmp" "$TEXTFILE"
-}
+prune_content=$(cat <<EOF
+# HELP botkit_image_prune_last_run_seconds Unix time of the last image retention run
+# TYPE botkit_image_prune_last_run_seconds gauge
+botkit_image_prune_last_run_seconds $(date +%s)
+# HELP botkit_image_prune_removed_total Tags removed in the last run
+# TYPE botkit_image_prune_removed_total gauge
+botkit_image_prune_removed_total $removed_total
+# HELP botkit_image_prune_failures Tags that could not be removed in the last run
+# TYPE botkit_image_prune_failures gauge
+botkit_image_prune_failures $failed_total
+# HELP botkit_image_prune_ok 1 if the last run had no failures
+# TYPE botkit_image_prune_ok gauge
+$(if [ "$failed_total" -eq 0 ]; then echo "botkit_image_prune_ok 1"; else echo "botkit_image_prune_ok 0"; fi)
+# HELP botkit_image_count Local images per bot repository after the run
+# TYPE botkit_image_count gauge
+$(cat "$count_metrics")
+EOF
+)
+write_textfile "$TEXTFILE" "$prune_content"
 
 log "total: removed ${removed_total}, failed ${failed_total}, keep window ${KEEP}"
 exit 0

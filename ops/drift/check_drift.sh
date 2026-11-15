@@ -14,6 +14,7 @@
 set -uo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/textfile_write.sh"
 
 
 DEPLOY_ROOT=/home/deploy
@@ -508,27 +509,23 @@ clone_ages=$(for entry in $BOTS; do
   fi
 done)
 
-# атомарная запись метрик (mktemp даёт 600 — node-exporter от nobody не прочитает)
-out=$(mktemp "${TEXTFILE}.XXXXXX") && {
-  {
-    echo "# HELP botkit_drift_ok 1 if the bot prod clone is clean (no drift beyond grace, no critical)"
-    echo "# TYPE botkit_drift_ok gauge"
-    cat "$METRICS_TMP"
-    echo "# HELP botkit_clone_age_seconds Age of bot clone HEAD in seconds"
-    echo "# TYPE botkit_clone_age_seconds gauge"
-    while read -r line; do
-      echo "$line"
-    done <<< "$clone_ages"
-    echo "# HELP botkit_drift_last_check_timestamp_seconds Unix time of the last drift check run"
-    echo "# TYPE botkit_drift_last_check_timestamp_seconds gauge"
-    echo "botkit_drift_last_check_timestamp_seconds $(now_s)"
-    echo "# HELP botkit_drift_last_run_seconds Unix time of the last drift check run (alias)"
-    echo "# TYPE botkit_drift_last_run_seconds gauge"
-    echo "botkit_drift_last_run_seconds $(now_s)"
-  } > "$out"
-  chmod 644 "$out"
-  mv -f "$out" "$TEXTFILE"
-}
+# атомарная запись метрик через общий helper (mktemp → chmod 644 → mv внутри)
+drift_content=$(cat <<EOF
+# HELP botkit_drift_ok 1 if the bot prod clone is clean (no drift beyond grace, no critical)
+# TYPE botkit_drift_ok gauge
+$(cat "$METRICS_TMP")
+# HELP botkit_clone_age_seconds Age of bot clone HEAD in seconds
+# TYPE botkit_clone_age_seconds gauge
+$clone_ages
+# HELP botkit_drift_last_check_timestamp_seconds Unix time of the last drift check run
+# TYPE botkit_drift_last_check_timestamp_seconds gauge
+botkit_drift_last_check_timestamp_seconds $(now_s)
+# HELP botkit_drift_last_run_seconds Unix time of the last drift check run (alias)
+# TYPE botkit_drift_last_run_seconds gauge
+botkit_drift_last_run_seconds $(now_s)
+EOF
+)
+write_textfile "$TEXTFILE" "$drift_content"
 rm -f "$METRICS_TMP"
 
 exit "$rc_total"

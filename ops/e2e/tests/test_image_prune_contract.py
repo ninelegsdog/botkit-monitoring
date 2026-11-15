@@ -101,6 +101,7 @@ class RunPrune:
         script_dir.mkdir(parents=True)
         lib_dir.mkdir(parents=True)
         shutil.copy(REPO / "ops" / "lib" / "fleet.sh", lib_dir / "fleet.sh")
+        shutil.copy(REPO / "ops" / "lib" / "textfile_write.sh", lib_dir / "textfile_write.sh")
         self.script = script_dir / "prune_images.sh"
         shutil.copy(PRUNE_SH, self.script)
 

@@ -256,6 +256,7 @@ def sandbox(tmp_path: pathlib.Path) -> Sandbox:
     lib = box.script.parent.parent / "lib"
     lib.mkdir(parents=True, exist_ok=True)
     shutil.copy(FLEET_SH, lib / "fleet.sh")
+    shutil.copy(REPO / "ops" / "lib" / "textfile_write.sh", lib / "textfile_write.sh")
     original_fleet = FLEET_ENV.read_text()
     original_line = next(line for line in original_fleet.splitlines() if line.startswith("FLEET="))
     (lib / "fleet.env").write_text(original_fleet.replace(original_line, f'FLEET="{BOT}:8081"'))
