@@ -64,23 +64,36 @@ else
 fi
 
 # 2b. Poller metrics the alerts read must actually be published.
-#     An alert over a metric nobody writes never fires; grepping the scripts does not
-#     prove the value reached the textfile, only reading it does.
+#     Список имён выводится из alerts.yml (не хардкод), чтобы не выпадать из
+#     поля зрения при добавлении новых поллеров. Проверка читает файлы textfile,
+#     а не скрипты — только так доказано, что значение дошло до коллектора.
 if compgen -G "/var/lib/node-exporter-textfile/botkit_*.prom" >/dev/null; then
   echo "--- poller metrics ---"
+  # Извлекаем все botkit_*_last_run_seconds из alert-выражений alerts.yml.
+  metrics=$(python3 -c "
+import yaml, re, sys
+try:
+    d = yaml.safe_load(open('$REPO/prometheus/alerts.yml'))
+    names = set()
+    for g in d.get('groups', []):
+        for r in g.get('rules', []):
+            expr = r.get('expr', '') or ''
+            for m in re.findall(r'botkit_[a-z0-9_]*_last_run_seconds', expr):
+                names.add(m)
+    print('\n'.join(sorted(names)))
+except Exception:
+    sys.exit(1)
+" 2>/dev/null) || { echo "SKIP poller metrics (cannot parse alerts.yml)"; }
   missing_metrics=0
-  for metric in \
-    botkit_healthcheck_last_run_seconds \
-    botkit_drift_last_run_seconds \
-    botkit_rollout_check_last_run_seconds \
-    botkit_backup_last_run_seconds \
-    botkit_backup_verify_last_run_seconds \
-    botkit_image_prune_last_run_seconds; do
-    if ! grep -qh "^$metric " /var/lib/node-exporter-textfile/botkit_*.prom; then
-      echo "FAIL metric $metric is not published"
-      missing_metrics=$((missing_metrics + 1))
-    fi
-  done
+  if [ -n "$metrics" ]; then
+    while IFS= read -r metric; do
+      [ -z "$metric" ] && continue
+      if ! grep -qh "^$metric " /var/lib/node-exporter-textfile/botkit_*.prom; then
+        echo "FAIL metric $metric is not published"
+        missing_metrics=$((missing_metrics + 1))
+      fi
+    done <<< "$metrics"
+  fi
   if [ "$missing_metrics" -eq 0 ]; then
     echo "OK   every alert-critical poller metric is published"
   else

@@ -20,6 +20,7 @@ set -uo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/clone_sync.sh" 2>/dev/null || true
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/textfile_write.sh"
 
 REGISTRY="ghcr.io"
 OWNER="ninelegsdog"
@@ -171,10 +172,6 @@ done
 # chmod 644 for the same reason as in healthcheck.sh: mktemp gives 600 under root's
 # umask, node-exporter runs unprivileged and cannot read it, and the alert on the
 # missing metric (`absent(...)`) then reports a dead poller that is in fact running.
-rollout_out=$(mktemp "${HEALTH_CHECK_TEXTFILE}.XXXXXX") && {
-  printf 'botkit_rollout_check_last_run_seconds %s\nbotkit_rollout_check_state %s\n' "$(date +%s)" "$rc_global" > "$rollout_out"
-  chmod 644 "$rollout_out"
-  mv -f "$rollout_out" "$HEALTH_CHECK_TEXTFILE"
-}
+write_textfile "$HEALTH_CHECK_TEXTFILE" "$(printf 'botkit_rollout_check_last_run_seconds %s\nbotkit_rollout_check_state %s' "$(date +%s)" "$rc_global")"
 
 exit "$rc_global"

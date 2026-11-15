@@ -194,6 +194,7 @@ class RunRollout:
         script_dir.mkdir(parents=True)
         lib_dir.mkdir(parents=True)
         shutil.copy(REPO / "ops" / "lib" / "fleet.sh", lib_dir / "fleet.sh")
+        shutil.copy(REPO / "ops" / "lib" / "textfile_write.sh", lib_dir / "textfile_write.sh")
         rollout = script_dir / "deploy_rollout.sh"
         rollout.write_text("#!/usr/bin/env bash\nexit 0\n")
         rollout.chmod(0o755)

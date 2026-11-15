@@ -12,6 +12,7 @@
 set -u
 
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/fleet.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/textfile_write.sh"
 
 
 DOMAIN="https://$WEBHOOK_DOMAIN/webhook"
@@ -20,6 +21,7 @@ BASE="$BASE_URL"
 
 LOG="${BOTKIT_SMOKE_LOG:-/var/log/botkit-smoke.log}"
 AM_URL="$ALERTMANAGER_ALERTS_URL"
+SMOKE_TEXTFILE="${BOTKIT_SMOKE_TEXTFILE:-/var/lib/node-exporter-textfile/botkit_smoke.prom}"
 ALERTED_DIR="${BOTKIT_SMOKE_ALERTED_DIR:-/var/backups/botkit-smoke/alerted}"
 THROTTLE=3600   # 1h между повторными алертами на бота
 # How long a raised alert stays firing, in seconds (must exceed THROTTLE + the 30m tick,
@@ -173,6 +175,17 @@ for entry in $BOTS; do
     log "OK $name tls=$tls auth=$auth noauth=$noauth health=$health"
   fi
 done
+
+# Пишем метрику жизни независимо от результата: отсутствие метрики = проверка не запускалась.
+write_smoke_metric() {
+  local now_s
+  now_s=$(date +%s)
+  write_textfile "$SMOKE_TEXTFILE" "# HELP botkit_smoke_last_run_seconds Unix time of the last smoke_all.sh run
+# TYPE botkit_smoke_last_run_seconds gauge
+botkit_smoke_last_run_seconds ${now_s}"
+}
+
+write_smoke_metric || log "WARN: cannot write smoke metric to $SMOKE_TEXTFILE"
 
 if [ "$FAIL" = "0" ]; then
   echo "SMOKE_ALL: PASS"; log "SMOKE_ALL: PASS"

@@ -12,6 +12,7 @@ TEXTFILE=${TEXTFILE:-/var/lib/node-exporter-textfile/botkit_backup.prom}
 # until the copy was replaced by the link.
 _self=$(readlink -f "${BASH_SOURCE[0]}")
 . "$(dirname "$_self")/../lib/fleet.sh"
+. "$(dirname "$_self")/../lib/textfile_write.sh"
 # S1: was a hardcoded default. fleet.sh is the single source; the env var
 # still wins so the unit can override it for a one-off.
 ALERTS_URL=${ALERTS_URL:-$ALERTMANAGER_ALERTS_URL}
@@ -129,8 +130,7 @@ if [ "$c_ok" != "1" ]; then
 fi
 
 echo "botkit_backup_last_run_seconds $(date +%s)" >> "$tmp"
-cat "$tmp" > "$TEXTFILE"
-chmod 644 "$TEXTFILE"
+write_textfile "$TEXTFILE" < "$tmp"
 rm -f "$tmp"
 echo "$PREFIX метрики записаны в $TEXTFILE" >&2
 
