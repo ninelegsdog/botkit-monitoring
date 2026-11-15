@@ -259,13 +259,13 @@ groups:
       - alert: BotMetricsUnavailable
         expr: |
           sum by (instance) (rate(botkit_updates_total{job="botkit"}[1h])) > 1e-3
-          and on(instance) absent_over_time(botkit_errors_total{job="botkit"}[1h])
+          unless on(instance) count by (instance) (botkit_errors_total{job="botkit"})
         for: 30m
         labels:
           severity: warning
         annotations:
           summary: "Нет метрик ошибок: {{ $labels.instance }}"
-          description: "botkit_errors_total отсутствует при активном трафике — error/burn-алерты не работают"
+          description: "Виден трафик (updates_total), но botkit_errors_total отсутствует — error/burn-алерты могут молчать. После инициализации error_type нулями (D2) метрика будет существовать всегда; если правило горит — проверка не сработала."
           runbook_url: "https://github.com/ninelegsdog/botkit-monitoring/blob/main/docs/runbooks/errors.md"
 
       # absent() is load-bearing here. A staleness expression on its own matches nothing
