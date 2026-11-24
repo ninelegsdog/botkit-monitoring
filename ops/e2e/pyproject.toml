@@ -8,12 +8,12 @@ version = "0.2.0"
 description = "End-to-end monitoring for botkit Telegram bots"
 requires-python = ">=3.10"
 dependencies = [
-    "telethon==1.45.0",
-    "PyYAML==6.0.3",
+    "telethon==1.46.0",
+    "PyYAML==6.0.4",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==9.2.0", "ruff==0.17.4"]
+dev = ["pytest==9.2.0", "ruff==0.17.6"]
 
 [tool.setuptools.packages.find]
 where = ["."]

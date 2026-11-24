@@ -1,13 +1,13 @@
 # Pinned because the E2E host is built once and then left alone: an unpinned
 # telethon changes send/receive behaviour between builds, so a fleet that was
 # green can start failing on a Saturday with no code change of ours.
-telethon==1.45.0
-PyYAML==6.0.3
+telethon==1.46.0
+PyYAML==6.0.4
 pytest==9.2.0
 # SOCKS backend for E2E_PROXY. Telethon prefers python-socks and falls back to
 # PySocks; with only PySocks installed it works but warns at construction that
 # "proxy argument will be ignored", which is false and would send the next
 # reader hunting for a bug that is not there.
-python-socks==3.2.1
+python-socks==3.2.2
 # requests was here to call getMe with a bot token and to POST alerts. The
 # runner no longer reads tokens, and the alert POST moved to stdlib urllib.
